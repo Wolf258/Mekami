@@ -65,7 +65,7 @@ func (s *stubHandler) HandleQuitAll(_ context.Context) error {
 
 func startStubServer(t *testing.T, h Handler) (*ipcServer, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sock := filepath.Join(dir, "supervisor.sock")
 	srv, err := startIPCServerAt(sock, h)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestIPCAcceptsConcurrentClients(t *testing.T) {
 // helper had to set XDG_CONFIG_HOME to make custom paths
 // work; that's no longer necessary.
 func TestIPC_StartStubServer_AcceptsArbitrarySocketPath(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sock := filepath.Join(dir, "deeply", "nested", "sub.sock")
 	h := &stubHandler{}
 	srv, err := startIPCServerAt(sock, h)

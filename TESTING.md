@@ -23,8 +23,14 @@ contributors must follow when adding new tests.
 From the repo root, with the committed `go.work`:
 
 ```
-go test ./mekami-core/... ./mekami-cli/...
+go env GOWORK
+go test -short ./mekami-cli/... ./mekami-core/...
 ```
+
+`go test -short ./...` from the repo root is rejected by
+Go because the root directory is not itself a module —
+the workspace only lists `./mekami-cli` and `./mekami-core`
+as modules. Pass the patterns explicitly.
 
 This is what CI runs and what the AUR `check()` runs. It is fast
 (seconds), hermetic, and exercises every package except those
@@ -148,10 +154,24 @@ Helpers that are reused across packages live in:
 - `mekami-cli/internal/supervisor/testhelpers_test.go` and
   `mekami-cli/internal/watch/testhelpers_test.go` for
   package-local helpers (fsnotify shim, fake daemons, stub
-  IPC servers).
+  IPC servers, and the `shortSockDir` helper described
+  below).
 - `mekami-core/integration_test/bridge_test.go:buildTestGraph`
   is the canonical "build a graph from a Go source blob"
   helper used by most integration tests.
+
+The supervisor package also exposes `shortSockDir(t)` in
+`testhelpers_test.go`. Tests that bind a Unix socket must
+use it instead of `t.TempDir()` as the parent of the
+socket path. On macOS the runtime temp dir lives under
+`/var/folders/.../T/<name><digits>/<digits>/`, and once you
+append `.mekami/watcher.sock` the full path exceeds the
+104-byte `sun_path` limit and `bind()` returns
+`invalid argument`. The helper is a no-op on Linux/Windows
+(it just returns `t.TempDir()`) and on macOS parks the dir
+under `/tmp/ms-<short-name>-XXXX` with a name truncated to
+16 chars so the resulting socket path stays well under the
+limit.
 
 There are three stubs of `api.Frontend` in the suite:
 
@@ -171,13 +191,23 @@ covers only the surface the tests in its package need.
 
 ## CI and packaging
 
-- **CI** (`.github/workflows/mekami.yml`): runs
-  `go test ./...` on `mekami-cli` only, on Go 1.26. No
-  `-tags integration`, so the integration suite is not
-  exercised in CI. The `build` job runs `./build.sh`.
-- **AUR** (`.aur/mekami/PKGBUILD:check()`): runs
-  `go test ./...` in both `mekami-core` and `mekami-cli`, no
-  integration tag.
+- **CI** (`.github/workflows/mekami.yml`): runs from the
+  repo root so the committed `go.work` is in scope. The
+  `test` job runs `go test -short ./...` against the
+  workspace (covers `mekami-cli` and `mekami-core`) on
+  Go 1.26 across `ubuntu-latest`, `macos-latest`, and
+  `windows-latest`. No `-tags integration`, so the
+  integration suite is not exercised in CI. The `build`
+  job runs `./build.sh` on Linux/macOS and a plain
+  `go build ./...` on Windows.
+- **AUR** (`.aur/mekami/PKGBUILD:check()`): runs from the
+  repo root, calls `go work sync` (idempotent; regenerates
+  the gitignored `go.work.sum` if missing) and then
+  `go test -short ./...`. The workspace activation matters
+  because `mekami-cli/go.mod` requires `mekami-core`, and
+  on a clean AUR build that module is only resolvable as
+  a local one through the workspace — not from the module
+  proxy.
 - **No Makefile.** `build.sh` is a developer-only build script
   and does not run tests.
 

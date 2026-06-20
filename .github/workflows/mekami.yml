@@ -18,10 +18,22 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-          cache-dependency-path: mekami-cli/go.sum
-      - name: Test mekami-cli
-        working-directory: mekami-cli
-        run: go test -short ./...
+          # Cache both modules' go.sum so the workspace build
+          # doesn't go cold when only one of them changed.
+          cache-dependency-path: |
+            mekami-cli/go.sum
+            mekami-core/go.sum
+      # Run from the repo root so the committed go.work is in
+      # scope; that keeps the require for mekami-core
+      # resolvable as a local module without hitting the
+      # module proxy. `./...` from the repo root is rejected
+      # by Go because the root is not itself a module, so
+      # we expand the patterns explicitly to the modules
+      # listed in go.work.
+      - name: Test workspace
+        run: |
+          go env GOWORK
+          go test -short ./mekami-cli/... ./mekami-core/...
 
   build:
     name: build-${{ matrix.os }}
@@ -36,7 +48,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-          cache-dependency-path: mekami-cli/go.sum
+          cache-dependency-path: |
+            mekami-cli/go.sum
+            mekami-core/go.sum
       # ./build.sh is the project's release script; it is
       # POSIX-shell and only meant to be run on Linux/macOS.
       # On Windows we use a plain go build so the matrix stays

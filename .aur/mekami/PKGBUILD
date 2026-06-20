@@ -92,11 +92,15 @@ build() {
 
 check() {
 	cd "$srcdir/mekami"
-	# Run the unit tests from both modules. The CLI exercises the
-	# cobra / MCP / watcher layers; the core exercises the indexer,
-	# queries, and SQLite store. Both pass on a clean checkout.
-	( cd mekami-core && go test ./... )
-	( cd mekami-cli && go test ./... )
+	# Run the unit tests from the repo root so the committed
+	# go.work stays in scope. mekami-cli's go.mod requires
+	# mekami-core as a module; without the workspace, that
+	# would fail on a clean AUR build because mekami-core
+	# lives inside the same repo rather than on the module
+	# proxy. `go work sync` is idempotent and just regenerates
+	# go.work.sum (gitignored) if it is missing.
+	go work sync
+	go test -short ./...
 }
 
 package() {

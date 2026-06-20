@@ -131,7 +131,7 @@ func TestWatchdogRun_ExitsOnSentinel(t *testing.T) {
 // sentinel must cause the watchdog to exit on its
 // next tick.
 func TestWatchdogRun_ExitsOnSentinelDuringLoop(t *testing.T) {
-	stateDir := t.TempDir()
+	stateDir := shortSockDir(t)
 	t.Setenv("XDG_CONFIG_HOME", stateDir)
 	// No supervisor at all: PID file missing, so the
 	// first WatchdogHealth call returns (gone=true)

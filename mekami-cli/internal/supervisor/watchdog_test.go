@@ -164,7 +164,7 @@ func (f *fakeSupervisor) crash() {
 // liveness probe returns (true, false) for a healthy
 // supervisor.
 func TestWatchdogHealth_Happy(t *testing.T) {
-	stateDir := t.TempDir()
+	stateDir := shortSockDir(t)
 	f, cleanup := startFakeSupervisor(t, stateDir)
 	defer cleanup()
 	healthy, gone := WatchdogHealth(
@@ -202,7 +202,7 @@ func TestWatchdogHealth_PIDMissing(t *testing.T) {
 // socket does not answer. This is the "wedged" case
 // that triggers a re-spawn.
 func TestWatchdogHealth_WedgedSocket(t *testing.T) {
-	stateDir := t.TempDir()
+	stateDir := shortSockDir(t)
 	f, cleanup := startFakeSupervisor(t, stateDir)
 	defer cleanup()
 	// Replace the fake's socket with an unresponsive
@@ -246,7 +246,7 @@ func TestWatchdogHealth_WedgedSocket(t *testing.T) {
 // precheck for the respawn E2E: confirm the fake's
 // "wedged" mode actually trips WatchdogHealth.
 func TestWatchdogHealth_WedgedReturnsUnhealthy(t *testing.T) {
-	stateDir := t.TempDir()
+	stateDir := shortSockDir(t)
 	f, cleanup := startFakeSupervisor(t, stateDir)
 	defer cleanup()
 	f.crash()
@@ -280,7 +280,7 @@ func TestWatchdogHealth_WedgedReturnsUnhealthy(t *testing.T) {
 // WatchdogMisses = 6 (30s of unresponsiveness before
 // the trigger fires).
 func TestWatchdogRun_RespawnsOnWedgedSupervisor(t *testing.T) {
-	stateDir := t.TempDir()
+	stateDir := shortSockDir(t)
 	f, cleanup := startFakeSupervisor(t, stateDir)
 	defer cleanup()
 	// Wedge the fake BEFORE the watchdog starts polling.

@@ -117,7 +117,7 @@ func (d *fakeDaemon) stop() {
 // return AdoptResult{PID, Root, StateRunning} with no
 // error.
 func TestAdoptDaemon_LiveOrphan(t *testing.T) {
-	root := t.TempDir()
+	root := shortSockDir(t)
 	d, cleanup := startFakeDaemon(t, root)
 	defer cleanup()
 	res, err := adoptDaemon(root)
@@ -255,7 +255,7 @@ func TestCleanStaleDaemonState_RemovesStaleFiles(t *testing.T) {
 // happened). cleanStaleDaemonState must NOT remove the
 // live process's files.
 func TestCleanStaleDaemonState_LeavesLiveProcessAlone(t *testing.T) {
-	root := t.TempDir()
+	root := shortSockDir(t)
 	d, cleanup := startFakeDaemon(t, root)
 	defer cleanup()
 	// The fake daemon is alive; cleanStaleDaemonState
@@ -281,7 +281,7 @@ func TestCleanStaleDaemonState_LeavesLiveProcessAlone(t *testing.T) {
 // without spawning a new process.
 func TestLoadFromRegistry_AdoptsOrphan(t *testing.T) {
 	stateDir := t.TempDir()
-	root := t.TempDir()
+	root := shortSockDir(t)
 	// Fake daemon: the supervisor is told (via
 	// registry) that a daemon is "running" for this
 	// root, and the fake is the actual running daemon
