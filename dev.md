@@ -18,19 +18,19 @@ The public README is the user-facing manual. This file is the
 
 ## Repo layout
 
-Mekami is split across three public repositories so each
+Mekami is split across four public repositories so each
 component can be consumed, versioned, and tested independently:
 
 ```
 Wolf258/mekami-api         ← api/v1/ (the Frontend interface contract)
-Wolf258/Mekami             ← umbrella: mekami-cli + mekami-core
+Wolf258/mekami-core        ← language-agnostic indexing pipeline
+Wolf258/Mekami             ← umbrella: mekami-cli only
 Wolf258/mekami-core-go     ← Go language frontend
 ```
 
-`mekami-core` lives inside the `Mekami` umbrella repo (as a
-sub-module) and is consumed by the CLI and any language core via
-its sub-path: `github.com/Wolf258/Mekami/mekami-core`. The CLI
-also blank-imports `mekami-core-go` from the generated
+`mekami-core` and `mekami-cli` are independent Go modules in
+independent repositories. The CLI imports `mekami-core` by
+version and blank-imports `mekami-core-go` from the generated
 `all_gen.go` to register the Go frontend in `api.Global`.
 
 All modules are published under `github.com/Wolf258/...`. The
@@ -58,19 +58,18 @@ name is owned by someone else.
   `mekami-api` for the contract; does **not** import
   `mekami-core` (which keeps the module graph acyclic).
 
-## Basic setup — CLI + core only
+## Basic setup — CLI only
 
-This is what a contributor who just wants to fix a CLI bug or
-work on `mekami-core` would do. No language core needed.
+This is what a contributor who just wants to fix a CLI bug
+would do. No language core or core dev setup needed.
 
 ```bash
 git clone https://github.com/Wolf258/Mekami
 cd Mekami
 go version                      # must be 1.26+
 
-# Test the CLI in isolation.
-( cd mekami-cli   && go test ./... )
-( cd mekami-core  && go test ./... )
+# Test the CLI.
+( cd mekami-cli && go test ./... )
 
 # Build the binary.
 ./build.sh
@@ -82,80 +81,75 @@ go version                      # must be 1.26+
 are currently resolvable, and produces a `mekami` binary in the
 repo root.
 
-The CLI depends on `github.com/Wolf258/mekami-core-go` (via
-`go.mod`) so the watch tests can register the Go frontend. The
-module is fetched from the Go proxy at `v0.1.1`. No `replace`
-directive is required.
+The CLI depends on `github.com/Wolf258/mekami-core`,
+`github.com/Wolf258/mekami-api`, and `github.com/Wolf258/mekami-core-go`
+(via `go.mod`). All three are fetched from the Go proxy by
+version. No `replace` directive is required.
 
 ## Local dev with multiple modules
 
 If you want to develop `mekami-cli`, `mekami-core`, and a core
 like `mekami-core-go` simultaneously and have your local edits
-take effect without publishing tags, use a local `go.work` file.
+take effect without publishing tags, use a local `go.work` file
+at the root of any of the repos (the workspace is a dev-only
+tool).
 
 ### Steps
 
-1. Clone the umbrella repo:
+1. Clone the repos as siblings:
    ```bash
    git clone https://github.com/Wolf258/Mekami
-   cd Mekami
-   ```
-
-2. Clone any core(s) you want to develop as **sibling
-   directories**:
-   ```bash
+   git clone https://github.com/Wolf258/mekami-core
    git clone https://github.com/Wolf258/mekami-core-go
    ```
 
-3. Create a `go.work` file in the repo root. **This file is
-   gitignored** — it's yours, not the project's:
+2. Create a `go.work` file in any of the three repo roots. **This
+   file is gitignored** — it's yours, not the project's:
    ```bash
+   cd Mekami
    cat > go.work <<'EOF'
    go 1.26.3
 
    use (
        ./mekami-cli
-       ./mekami-core
+       ../mekami-core
+       ../mekami-core-go
    )
    EOF
    ```
-   (The sibling `mekami-core-go` is consumed by version from the
-   proxy unless you also want to develop it locally; in that
-   case add `./mekami-core-go` to the `use` block.)
+   The sibling-relative paths assume the repos sit next to
+   each other on disk; adjust if your layout differs.
 
-4. Verify the workspace resolves:
+3. Verify the workspace resolves:
    ```bash
    go work edit -print
    ```
 
-5. Test everything at once (uses the workspace):
+4. Test everything at once (uses the workspace):
    ```bash
    go test ./...
    ```
 
-6. Build:
+5. Build:
    ```bash
    ./build.sh
    ```
 
 ### Why `go.work` is gitignored
 
-- A fresh clone of `Wolf258/Mekami` should compile and test
+- A fresh clone of any Mekami repo should compile and test
   against published module versions, not against whatever
   happens to be sitting in a sibling directory on your machine.
 - Each contributor's `go.work` may differ (different cores, Go
   version, etc.). It's a local concern.
 
-The CI side handles the multi-module case with a matrix
-strategy that tests each module independently — see
-`.github/workflows/mekami.yml`. `mekami-core-go` has its own
-CI in its own repository.
+The CI side tests each module in its own repository.
 
 ### Useful `go work` commands
 
 ```bash
 # Add a new local module to the workspace.
-go work use ./mekami-core-rust
+go work use ../mekami-core-rust
 
 # Show the current workspace definition.
 go work edit -print
@@ -164,7 +158,7 @@ go work edit -print
 go work sync
 
 # Remove a module from the workspace.
-go work edit -dropreplace=./mekami-core-rust
+go work edit -dropreplace=../mekami-core-rust
 ```
 
 ## Common commands
@@ -267,15 +261,12 @@ Suppose you're adding `mekami-core-rust`.
 1. Bump the version in the affected module(s):
    - `mekami-cli` (binary, AUR): tag `v0.2.0` on the umbrella
      repo's `main` branch.
-   - `mekami-core`: tag `v0.2.0` on the umbrella repo's `main`
-     branch at the same commit (the CLI and core move in
-     lockstep because the core is a sub-module of the same
-     repo).
+   - `mekami-core`: tag `v0.2.0` on its own repo.
    - `mekami-core-<lang>`: tag `v0.2.0` on its own repo.
 2. Bump the `require` lines in downstream `go.mod` files to
    match:
    ```bash
-   go get github.com/Wolf258/Mekami/mekami-core@v0.2.0
+   go get github.com/Wolf258/mekami-core@v0.2.0
    go get github.com/Wolf258/mekami-core-go@v0.2.0
    go mod tidy
    ```
