@@ -1,19 +1,21 @@
-# integration_test
+# Integration tests
 
-Integration tests for mekami-core. These tests require
-`github.com/Wolf258/mekami-core-go` as a test-only dependency
-and are gated behind the `integration` build tag. They are NOT
-part of the default test suite.
+End-to-end tests that require a real `mekami-core-go` parser, a real filesystem watcher, or a live user bus. Gated behind the `integration` build tag so the default `go test ./...` stays fast and hermetic.
 
-## Running
+**Full documentation:** <https://wolf258.github.io/mekami/development/testing/>
 
+## Running locally
+
+From `mekami-cli/`:
+
+```bash
+go test -tags integration ./internal/core/integration_test/...
+go test -tags integration ./internal/watch/...
+go test -tags integration ./cmd/mekami/ -run ServiceLifecycle
 ```
-go get github.com/Wolf258/mekami-core-go
-go test -tags=integration ./integration_test/...
-```
 
-These tests live in the main module (mekami-core) so they can
-exercise the ingest pipeline against real Go source code
-without crossing module boundaries. They are excluded from
-`go test ./...` because the file-level build tag prevents them
-from compiling under default tags.
+## Layout
+
+- `setup_test.go` — bootstrap.
+- `bridge_test.go` — `buildTestGraph` helper used by most tests.
+- `*_test.go` — one file per scenario (refs, prune, mcp_polish, funclit, etc.).
