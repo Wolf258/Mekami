@@ -3,9 +3,9 @@ package supervisor
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
+
+	"github.com/Wolf258/mekami-cli/internal/testutil"
 )
 
 // filepathJoinTemp returns a path inside t.TempDir(). It's a
@@ -28,32 +28,10 @@ func writeFile(path, content string) (int, error) {
 	return len(content), os.WriteFile(path, []byte(content), 0o644)
 }
 
-// shortSockDir returns a directory in which to put a Unix
-// domain socket for the current test. On Linux and Windows
-// t.TempDir() is short enough. On macOS the runtime temp dir
-// lives under /var/folders/.../T/<name><digits>/<digits>/
-// which, combined with our .mekami/watcher.sock (or
-// supervisor.sock) suffix, easily pushes the full path past
-// the 104-byte sun_path limit and bind() returns
-// "invalid argument". We work around that by parking the
-// socket in /tmp with a short, test-derived name. The dir is
-// registered for cleanup.
+// shortSockDir delegates to testutil so the package-local tests
+// can keep their short call sites. See testutil.ShortSockDir for
+// the full rationale (macOS sun_path limit).
 func shortSockDir(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS != "darwin" {
-		return t.TempDir()
-	}
-	// t.Name() can be arbitrarily long when subtests are
-	// nested. Truncate to a prefix that keeps the final
-	// /tmp/ms-<name>-XXXXXXXX/<sock> well under 104 bytes.
-	name := strings.ReplaceAll(t.Name(), "/", "_")
-	if len(name) > 16 {
-		name = name[:16]
-	}
-	dir, err := os.MkdirTemp("/tmp", "ms-"+name+"-")
-	if err != nil {
-		t.Fatalf("shortSockDir MkdirTemp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return dir
+	return testutil.ShortSockDir(t)
 }

@@ -144,16 +144,17 @@ Helpers that are reused across packages live in:
 - `mekami-cli/internal/supervisor/testhelpers_test.go` and
   `mekami-cli/internal/watch/testhelpers_test.go` for
   package-local helpers (fsnotify shim, fake daemons, stub
-  IPC servers, and the `shortSockDir` helper described
-  below).
+  IPC servers, and a thin wrapper around `testutil.ShortSockDir`
+  described below).
 - `mekami-cli/internal/core/integration_test/bridge_test.go:buildTestGraph`
   is the canonical "build a graph from a Go source blob"
   helper used by most integration tests.
 
-The supervisor package also exposes `shortSockDir(t)` in
-`testhelpers_test.go`. Tests that bind a Unix socket must
-use it instead of `t.TempDir()` as the parent of the
-socket path. On macOS the runtime temp dir lives under
+Tests that bind a Unix socket must use `ShortSockDir(t)` from
+`mekami-cli/internal/testutil/sockdir.go` (re-exported as
+`shortSockDir(t)` from the per-package test helpers) instead
+of `t.TempDir()` as the parent of the socket path. On macOS
+the runtime temp dir lives under
 `/var/folders/.../T/<name><digits>/<digits>/`, and once you
 append `.mekami/watcher.sock` the full path exceeds the
 104-byte `sun_path` limit and `bind()` returns

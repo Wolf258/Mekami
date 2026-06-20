@@ -96,7 +96,7 @@ func TestEnsureStateDir_CreatesWith700(t *testing.T) {
 }
 
 func TestIPC_ClientServerPing(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	if err := EnsureStateDir(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestIPC_ClientServerPing(t *testing.T) {
 }
 
 func TestIPC_StatusReturnsCounters(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	if err := EnsureStateDir(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestIPC_StatusReturnsCounters(t *testing.T) {
 }
 
 func TestIPC_StopTriggersCallback(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	if err := EnsureStateDir(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestIPC_StopTriggersCallback(t *testing.T) {
 }
 
 func TestIPC_UnknownCommand(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	if err := EnsureStateDir(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestIPC_UnknownCommand(t *testing.T) {
 }
 
 func TestIPC_ReloadMetrics(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	if err := EnsureStateDir(dir); err != nil {
 		t.Fatal(err)
 	}
