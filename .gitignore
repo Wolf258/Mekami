@@ -1,3 +1,4 @@
+site/
 .mekami/
 mekami-core-go/
 go.work.sum
