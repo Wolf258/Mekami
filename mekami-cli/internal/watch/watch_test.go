@@ -121,35 +121,36 @@ func TestCoalescer_BufferFull(t *testing.T) {
 func TestFilter_GoFile(t *testing.T) {
 	f := DefaultFilter()
 	cases := map[string]bool{
-		"foo.go":              true,
-		"sub/bar.go":          true,
-		"deep/nested/x.go":    true,
-		"foo_test.go":         false,
-		"foo.txt":             false,
-		"README.md":           false,
-		".mekami/x.go":        false,
-		"sub/.mekami/x.go":    false,
-		"vendor/x.go":         false,
-		"node_modules/x.go":   false,
-		".git/x.go":           false,
-		"_dev/x.go":           false,
-		"foo.tmp":             false,
-		"foo.swp":             false,
-		"foo.swo":             false,
-		".DS_Store":           false,
-		"foo~":                false,
-		"foo.go.bak":          false, // doesn't match *.swp
-		"go.mod":              true,  // structural
-		"go.work":             true,
-		"go.sum":              true,
-		"sub/go.mod":          true,
-		"":                    false,
+		"foo.go":            true,
+		"sub/bar.go":        true,
+		"deep/nested/x.go":  true,
+		"foo_test.go":       false,
+		"foo.txt":           false,
+		"README.md":         false,
+		".mekami/x.go":      false,
+		"sub/.mekami/x.go":  false,
+		"vendor/x.go":       false,
+		"node_modules/x.go": false,
+		".git/x.go":         false,
+		"_dev/x.go":         false,
+		"foo.tmp":           false,
+		"foo.swp":           false,
+		"foo.swo":           false,
+		".DS_Store":         false,
+		"foo~":              false,
+		"foo.go.bak":        false, // doesn't match *.swp
+		"go.mod":            true,  // structural
+		"go.work":           true,
+		"go.sum":            true,
+		"sub/go.mod":        true,
+		"":                  false,
 	}
 	for in, want := range cases {
-		got := f.Accept(in)
-		if got != want {
-			t.Errorf("Accept(%q): got %v, want %v", in, got, want)
-		}
+		t.Run(in, func(t *testing.T) {
+			if got := f.Accept(in); got != want {
+				t.Errorf("Accept(%q): got %v, want %v", in, got, want)
+			}
+		})
 	}
 }
 
@@ -169,35 +170,37 @@ func TestFilter_CustomPatterns(t *testing.T) {
 func TestTranslate(t *testing.T) {
 	root := "/tmp/proj"
 	cases := []struct {
+		name     string
 		ev       fsnotifyEvent
 		wantPath string
 		wantKind EventKind
 		ok       bool
 	}{
-		{fsnotifyEvent{Name: "/tmp/proj/a.go", Op: opCreate}, "a.go", EventCreate, true},
-		{fsnotifyEvent{Name: "/tmp/proj/sub/b.go", Op: opWrite}, "sub/b.go", EventWrite, true},
-		{fsnotifyEvent{Name: "/tmp/proj/c.go", Op: opRemove}, "c.go", EventRemove, true},
-		{fsnotifyEvent{Name: "/tmp/proj/d.go", Op: opChmod}, "d.go", EventChmod, true},
-		{fsnotifyEvent{Name: "/tmp/proj/e.go", Op: opRename}, "e.go", EventRename, true},
-		{fsnotifyEvent{Name: "", Op: opCreate}, "", 0, false},
-		{fsnotifyEvent{Name: "/other/x.go", Op: opCreate}, "", 0, false},
-		{fsnotifyEvent{Name: "/tmp/proj/f.go", Op: 0}, "", 0, false},
+		{"create_top_level", fsnotifyEvent{Name: "/tmp/proj/a.go", Op: opCreate}, "a.go", EventCreate, true},
+		{"write_in_subdir", fsnotifyEvent{Name: "/tmp/proj/sub/b.go", Op: opWrite}, "sub/b.go", EventWrite, true},
+		{"remove_top_level", fsnotifyEvent{Name: "/tmp/proj/c.go", Op: opRemove}, "c.go", EventRemove, true},
+		{"chmod_top_level", fsnotifyEvent{Name: "/tmp/proj/d.go", Op: opChmod}, "d.go", EventChmod, true},
+		{"rename_top_level", fsnotifyEvent{Name: "/tmp/proj/e.go", Op: opRename}, "e.go", EventRename, true},
+		{"empty_name_rejected", fsnotifyEvent{Name: "", Op: opCreate}, "", 0, false},
+		{"path_outside_root_rejected", fsnotifyEvent{Name: "/other/x.go", Op: opCreate}, "", 0, false},
+		{"zero_op_rejected", fsnotifyEvent{Name: "/tmp/proj/f.go", Op: 0}, "", 0, false},
 	}
-	for i, tc := range cases {
-		got, ok := Translate(root, tc.ev.toFsnotify())
-		if ok != tc.ok {
-			t.Errorf("case %d: ok=%v want %v", i, ok, tc.ok)
-			continue
-		}
-		if !ok {
-			continue
-		}
-		if got.Path != tc.wantPath {
-			t.Errorf("case %d path: got %q want %q", i, got.Path, tc.wantPath)
-		}
-		if got.Kind != tc.wantKind {
-			t.Errorf("case %d kind: got %v want %v", i, got.Kind, tc.wantKind)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := Translate(root, tc.ev.toFsnotify())
+			if ok != tc.ok {
+				t.Fatalf("ok=%v want %v", ok, tc.ok)
+			}
+			if !ok {
+				return
+			}
+			if got.Path != tc.wantPath {
+				t.Errorf("path: got %q want %q", got.Path, tc.wantPath)
+			}
+			if got.Kind != tc.wantKind {
+				t.Errorf("kind: got %v want %v", got.Kind, tc.wantKind)
+			}
+		})
 	}
 }
 

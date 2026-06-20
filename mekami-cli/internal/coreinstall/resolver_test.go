@@ -6,27 +6,30 @@ import (
 
 func TestSplitLangRef(t *testing.T) {
 	cases := []struct {
+		name      string
 		in        string
 		lang      string
 		version   string
 		wantError bool
 	}{
-		{"go", "go", "", false},
-		{"go@v0.1.0", "go", "v0.1.0", false},
-		{"rust@1.2.3", "rust", "1.2.3", false},
-		{"  go  ", "go", "", false},
-		{"go@v0.1.0-rc1", "go", "v0.1.0-rc1", false},
-		{"", "", "", true},
+		{"bare_name", "go", "go", "", false},
+		{"name_with_v_prefix", "go@v0.1.0", "go", "v0.1.0", false},
+		{"name_with_semver", "rust@1.2.3", "rust", "1.2.3", false},
+		{"name_with_whitespace", "  go  ", "go", "", false},
+		{"name_with_prerelease", "go@v0.1.0-rc1", "go", "v0.1.0-rc1", false},
+		{"empty_errors", "", "", "", true},
 	}
 	for _, c := range cases {
-		lang, ver, err := SplitLangRef(c.in)
-		if (err != nil) != c.wantError {
-			t.Errorf("SplitLangRef(%q) err=%v, wantError=%v", c.in, err, c.wantError)
-			continue
-		}
-		if lang != c.lang || ver != c.version {
-			t.Errorf("SplitLangRef(%q) = (%q,%q), want (%q,%q)", c.in, lang, ver, c.lang, c.version)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			lang, ver, err := SplitLangRef(c.in)
+			if (err != nil) != c.wantError {
+				t.Errorf("SplitLangRef(%q) err=%v, wantError=%v", c.in, err, c.wantError)
+				return
+			}
+			if lang != c.lang || ver != c.version {
+				t.Errorf("SplitLangRef(%q) = (%q,%q), want (%q,%q)", c.in, lang, ver, c.lang, c.version)
+			}
+		})
 	}
 }
 
@@ -47,27 +50,30 @@ func TestIsValidLang(t *testing.T) {
 
 func TestNormalizeVersion(t *testing.T) {
 	cases := []struct {
+		name     string
 		in, want string
 		wantErr  bool
 	}{
-		{"v0.1.0", "v0.1.0", false},
-		{"0.1.0", "v0.1.0", false},
-		{"1.2", "v1.2", false},
-		{"v1", "v1", false},
-		{"v0.1.0-rc1", "v0.1.0-rc1", false},
-		{"", "", true},
-		{"v", "", true},
-		{"vX.Y.Z", "", true},
+		{"already_prefixed", "v0.1.0", "v0.1.0", false},
+		{"missing_v_prefix", "0.1.0", "v0.1.0", false},
+		{"major_minor_only", "1.2", "v1.2", false},
+		{"major_only", "v1", "v1", false},
+		{"prerelease_suffix", "v0.1.0-rc1", "v0.1.0-rc1", false},
+		{"empty_errors", "", "", true},
+		{"v_only_errors", "v", "", true},
+		{"non_numeric_errors", "vX.Y.Z", "", true},
 	}
 	for _, c := range cases {
-		got, err := normalizeVersion(c.in)
-		if (err != nil) != c.wantErr {
-			t.Errorf("normalizeVersion(%q) err=%v, wantErr=%v", c.in, err, c.wantErr)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("normalizeVersion(%q) = %q, want %q", c.in, got, c.want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			got, err := normalizeVersion(c.in)
+			if (err != nil) != c.wantErr {
+				t.Errorf("normalizeVersion(%q) err=%v, wantErr=%v", c.in, err, c.wantErr)
+				return
+			}
+			if got != c.want {
+				t.Errorf("normalizeVersion(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
 	}
 }
 

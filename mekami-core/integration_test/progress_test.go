@@ -1,11 +1,10 @@
 //go:build integration
-// +build integration
 
 package integration_test
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 

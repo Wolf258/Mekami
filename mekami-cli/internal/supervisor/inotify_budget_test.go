@@ -5,65 +5,77 @@ import (
 	"testing"
 )
 
-func TestInotifyBudget_SetAndTotal(t *testing.T) {
-	b := NewInotifyBudget()
-	b.SetDaemonWatches("/proj/a", 100)
-	b.SetDaemonWatches("/proj/b", 250)
-	if got := b.Usage(); got != 350 {
-		t.Fatalf("usage = %d, want 350", got)
+func TestInotifyBudget_UsageAccounting(t *testing.T) {
+	cases := []struct {
+		name        string
+		ops         [][2]any // [root, n] tuples to apply
+		wantUsage   int64
+		wantMissing string
+	}{
+		{
+			name:      "set_and_total",
+			ops:       [][2]any{{"/proj/a", int64(100)}, {"/proj/b", int64(250)}},
+			wantUsage: 350,
+		},
+		{
+			name:      "replace_value",
+			ops:       [][2]any{{"/proj/a", int64(100)}, {"/proj/a", int64(50)}, {"/proj/a", int64(75)}},
+			wantUsage: 75,
+		},
+		{
+			name:        "remove_on_zero",
+			ops:         [][2]any{{"/proj/a", int64(100)}, {"/proj/b", int64(50)}, {"/proj/a", int64(0)}},
+			wantUsage:   50,
+			wantMissing: "/proj/a",
+		},
 	}
-}
-
-func TestInotifyBudget_ReplaceValue(t *testing.T) {
-	b := NewInotifyBudget()
-	b.SetDaemonWatches("/proj/a", 100)
-	b.SetDaemonWatches("/proj/a", 50)
-	if got := b.Usage(); got != 50 {
-		t.Fatalf("after replace usage = %d, want 50", got)
-	}
-	b.SetDaemonWatches("/proj/a", 75)
-	if got := b.Usage(); got != 75 {
-		t.Fatalf("after second replace usage = %d, want 75", got)
-	}
-}
-
-func TestInotifyBudget_RemoveZero(t *testing.T) {
-	b := NewInotifyBudget()
-	b.SetDaemonWatches("/proj/a", 100)
-	b.SetDaemonWatches("/proj/b", 50)
-	b.SetDaemonWatches("/proj/a", 0)
-	if got := b.Usage(); got != 50 {
-		t.Fatalf("after remove usage = %d, want 50", got)
-	}
-	if _, ok := b.perDaemon["/proj/a"]; ok {
-		t.Fatalf("expected /proj/a to be removed from perDaemon")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := NewInotifyBudget()
+			for _, op := range c.ops {
+				root, _ := op[0].(string)
+				n, _ := op[1].(int64)
+				b.SetDaemonWatches(root, n)
+			}
+			if got := b.Usage(); got != c.wantUsage {
+				t.Fatalf("usage = %d, want %d", got, c.wantUsage)
+			}
+			if c.wantMissing != "" {
+				if _, ok := b.perDaemon[c.wantMissing]; ok {
+					t.Fatalf("expected %s to be removed from perDaemon", c.wantMissing)
+				}
+			}
+		})
 	}
 }
 
 func TestInotifyBudget_LevelBuckets(t *testing.T) {
-	b := &InotifyBudget{
-		limit:     1000,
-		perDaemon: make(map[string]int64),
-	}
 	cases := []struct {
+		name  string
 		usage int64
 		want  BudgetLevel
 	}{
-		{0, BudgetOK},
-		{599, BudgetOK},
-		{600, BudgetWarning},
-		{799, BudgetWarning},
-		{800, BudgetDegraded},
-		{949, BudgetDegraded},
-		{950, BudgetCritical},
-		{1000, BudgetCritical},
-		{2000, BudgetCritical},
+		{"ok_low", 0, BudgetOK},
+		{"ok_below_warning", 599, BudgetOK},
+		{"warning_low", 600, BudgetWarning},
+		{"warning_below_degraded", 799, BudgetWarning},
+		{"degraded_low", 800, BudgetDegraded},
+		{"degraded_below_critical", 949, BudgetDegraded},
+		{"critical_low", 950, BudgetCritical},
+		{"critical_at_limit", 1000, BudgetCritical},
+		{"critical_above_limit", 2000, BudgetCritical},
 	}
 	for _, c := range cases {
-		b.usage = c.usage
-		if got := b.Level(); got != c.want {
-			t.Errorf("usage=%d: got %v, want %v", c.usage, got, c.want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			b := &InotifyBudget{
+				limit:     1000,
+				perDaemon: make(map[string]int64),
+			}
+			b.usage = c.usage
+			if got := b.Level(); got != c.want {
+				t.Errorf("usage=%d: got %v, want %v", c.usage, got, c.want)
+			}
+		})
 	}
 }
 

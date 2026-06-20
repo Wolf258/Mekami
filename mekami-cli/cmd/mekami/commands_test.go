@@ -34,8 +34,8 @@ func resetAPIGlobal(t *testing.T) {
 // ingest.Build expects when the language has no workspace concept.
 type fakeFrontend struct{ name string }
 
-func (f fakeFrontend) Name() string      { return f.name }
-func (f fakeFrontend) Extensions() []string { return []string{".x"} }
+func (f fakeFrontend) Name() string              { return f.name }
+func (f fakeFrontend) Extensions() []string      { return []string{".x"} }
 func (f fakeFrontend) StructuralFiles() []string { return nil }
 func (f fakeFrontend) IsIndexable(string) bool   { return true }
 func (f fakeFrontend) ResolveLayout(string) (*api.Workspace, error) {
@@ -52,113 +52,101 @@ func (f fakeFrontend) ParseFile(string, string, string, string, int64, int64) (a
 	return api.ParseResult{}, nil
 }
 
-func TestResolveLang_EmptyConfigNoExplicit_ErrorsNoCoresInstalled(t *testing.T) {
-	resetAPIGlobal(t)
-	_, err := resolveLang(config.Config{}, "")
-	if err == nil {
-		t.Fatal("expected error, got nil")
+func TestResolveLang(t *testing.T) {
+	tests := []struct {
+		name      string
+		registers []string
+		cfg       config.Config
+		explicit  string
+		wantOK    bool
+		wantLang  string
+		wantInErr []string
+	}{
+		{
+			name:      "empty_config_no_explicit_errors_no_cores_installed",
+			wantOK:    false,
+			wantInErr: []string{"no cores installed", "core install"},
+		},
+		{
+			name:      "empty_config_explicit_go_with_binary_registered_ok",
+			registers: []string{"go"},
+			explicit:  "go",
+			wantOK:    true,
+			wantLang:  "go",
+		},
+		{
+			name:      "empty_config_explicit_go_not_in_binary_errors",
+			explicit:  "go",
+			wantOK:    false,
+			wantInErr: []string{`--lang "go"`, "core install"},
+		},
+		{
+			name:      "empty_config_explicit_unknown_errors",
+			explicit:  "python",
+			wantOK:    false,
+			wantInErr: []string{`"python"`},
+		},
+		{
+			name:      "single_indexer_registered_ok",
+			registers: []string{"go"},
+			cfg:       config.Config{Indexers: map[string]string{"go": "v0.1.0"}},
+			wantOK:    true,
+			wantLang:  "go",
+		},
+		{
+			name:      "single_indexer_not_in_binary_errors_configured_but_missing",
+			cfg:       config.Config{Indexers: map[string]string{"go": "v0.1.0"}},
+			wantOK:    false,
+			wantInErr: []string{"configured but not registered"},
+		},
+		{
+			name:      "multiple_indexers_no_explicit_errors_ambiguous",
+			registers: []string{"go", "rust"},
+			cfg: config.Config{Indexers: map[string]string{
+				"go":   "v0.1.0",
+				"rust": "v0.2.0",
+			}},
+			wantOK:    false,
+			wantInErr: []string{"--lang is required"},
+		},
+		{
+			name:      "multiple_indexers_explicit_picks_requested",
+			registers: []string{"go", "rust"},
+			cfg: config.Config{Indexers: map[string]string{
+				"go":   "v0.1.0",
+				"rust": "v0.2.0",
+			}},
+			explicit: "rust",
+			wantOK:   true,
+			wantLang: "rust",
+		},
 	}
-	if !strings.Contains(err.Error(), "no cores installed") {
-		t.Errorf("err = %q, want substring %q", err.Error(), "no cores installed")
-	}
-	if !strings.Contains(err.Error(), "core install") {
-		t.Errorf("err = %q, want hint pointing at core install", err.Error())
-	}
-}
-
-func TestResolveLang_EmptyConfigExplicitGoWithBinaryRegistered_OK(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	got, err := resolveLang(config.Config{}, "go")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if got != "go" {
-		t.Errorf("got %q, want %q", got, "go")
-	}
-}
-
-func TestResolveLang_EmptyConfigExplicitGoNotInBinary_Errors(t *testing.T) {
-	resetAPIGlobal(t)
-	_, err := resolveLang(config.Config{}, "go")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), `--lang "go"`) {
-		t.Errorf("err = %q, want mention of --lang go", err.Error())
-	}
-	if !strings.Contains(err.Error(), "core install") {
-		t.Errorf("err = %q, want hint pointing at core install", err.Error())
-	}
-}
-
-func TestResolveLang_EmptyConfigExplicitUnknown_Errors(t *testing.T) {
-	resetAPIGlobal(t)
-	_, err := resolveLang(config.Config{}, "python")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), `"python"`) {
-		t.Errorf("err = %q, want mention of python", err.Error())
-	}
-}
-
-func TestResolveLang_SingleIndexerRegistered_OK(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	cfg := config.Config{Indexers: map[string]string{"go": "v0.1.0"}}
-	got, err := resolveLang(cfg, "")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if got != "go" {
-		t.Errorf("got %q, want %q", got, "go")
-	}
-}
-
-func TestResolveLang_SingleIndexerNotInBinary_ErrorsConfiguredButMissing(t *testing.T) {
-	resetAPIGlobal(t)
-	cfg := config.Config{Indexers: map[string]string{"go": "v0.1.0"}}
-	_, err := resolveLang(cfg, "")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "configured but not registered") {
-		t.Errorf("err = %q, want 'configured but not registered' substring", err.Error())
-	}
-}
-
-func TestResolveLang_MultipleIndexersNoExplicit_ErrorsAmbiguous(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	api.Global.Register(fakeFrontend{name: "rust"})
-	cfg := config.Config{Indexers: map[string]string{
-		"go":   "v0.1.0",
-		"rust": "v0.2.0",
-	}}
-	_, err := resolveLang(cfg, "")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "--lang is required") {
-		t.Errorf("err = %q, want '--lang is required' substring", err.Error())
-	}
-}
-
-func TestResolveLang_MultipleIndexersExplicitPicksRequested(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	api.Global.Register(fakeFrontend{name: "rust"})
-	cfg := config.Config{Indexers: map[string]string{
-		"go":   "v0.1.0",
-		"rust": "v0.2.0",
-	}}
-	got, err := resolveLang(cfg, "rust")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if got != "rust" {
-		t.Errorf("got %q, want %q", got, "rust")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resetAPIGlobal(t)
+			for _, name := range tc.registers {
+				api.Global.Register(fakeFrontend{name: name})
+			}
+			got, err := resolveLang(tc.cfg, tc.explicit)
+			if tc.wantOK {
+				if err != nil {
+					t.Fatalf("unexpected err: %v", err)
+				}
+				if got != tc.wantLang {
+					t.Errorf("got %q, want %q", got, tc.wantLang)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			msg := err.Error()
+			for _, want := range tc.wantInErr {
+				if !strings.Contains(msg, want) {
+					t.Errorf("err = %q, want substring %q", msg, want)
+				}
+			}
+		})
 	}
 }
 
@@ -193,192 +181,223 @@ func readConfig(t *testing.T) config.Config {
 	return cfg
 }
 
-func TestResolveInitLangs_NoCores_Errors(t *testing.T) {
-	resetAPIGlobal(t)
-	_, err := resolveInitLangs(nil, nil)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+func TestResolveInitLangs(t *testing.T) {
+	tests := []struct {
+		name      string
+		registers []string
+		requested []string
+		available []string
+		wantOK    bool
+		wantLangs []string
+		wantInErr []string
+	}{
+		{
+			name:      "no_cores_errors",
+			wantOK:    false,
+			wantInErr: []string{"no language cores registered"},
+		},
+		{
+			name:      "empty_requested_uses_all_sorted",
+			registers: []string{"rust", "go"},
+			available: []string{"go", "rust"},
+			wantOK:    true,
+			wantLangs: []string{"go", "rust"},
+		},
+		{
+			name:      "requested_known_ok",
+			registers: []string{"go", "rust"},
+			requested: []string{"rust"},
+			available: []string{"go", "rust"},
+			wantOK:    true,
+			wantLangs: []string{"rust"},
+		},
+		{
+			name:      "requested_unknown_errors",
+			registers: []string{"go"},
+			requested: []string{"python"},
+			available: []string{"go"},
+			wantOK:    false,
+			wantInErr: []string{`"python"`, "core install"},
+		},
+		{
+			name:      "requested_duplicates_dedupe",
+			registers: []string{"go"},
+			requested: []string{"go", "go", "go"},
+			available: []string{"go"},
+			wantOK:    true,
+			wantLangs: []string{"go"},
+		},
 	}
-	if !strings.Contains(err.Error(), "no language cores registered") {
-		t.Errorf("err = %q, want substring %q", err.Error(), "no language cores registered")
-	}
-}
-
-func TestResolveInitLangs_EmptyRequested_UsesAllSorted(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "rust"})
-	api.Global.Register(fakeFrontend{name: "go"})
-	got, err := resolveInitLangs(nil, api.Global.Names())
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	want := []string{"go", "rust"}
-	if !stringSliceEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-}
-
-func TestResolveInitLangs_RequestedKnown_OK(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	api.Global.Register(fakeFrontend{name: "rust"})
-	got, err := resolveInitLangs([]string{"rust"}, api.Global.Names())
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !stringSliceEqual(got, []string{"rust"}) {
-		t.Errorf("got %v, want [rust]", got)
-	}
-}
-
-func TestResolveInitLangs_RequestedUnknown_Errors(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	_, err := resolveInitLangs([]string{"python"}, api.Global.Names())
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), `"python"`) {
-		t.Errorf("err = %q, want mention of python", err.Error())
-	}
-	if !strings.Contains(err.Error(), "core install") {
-		t.Errorf("err = %q, want hint pointing at core install", err.Error())
-	}
-}
-
-func TestResolveInitLangs_RequestedDuplicatesDedupe(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	got, err := resolveInitLangs([]string{"go", "go", "go"}, api.Global.Names())
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !stringSliceEqual(got, []string{"go"}) {
-		t.Errorf("got %v, want [go]", got)
-	}
-}
-
-func TestMergeIndexers_ExplicitReplaces(t *testing.T) {
-	existing := map[string]string{"rust": "v0.2.0", "go": "v0.1.0"}
-	selected := map[string]string{"go": ""}
-	got := mergeIndexers(existing, selected, true)
-	names := mapKeys(got)
-	if !stringSliceEqual(names, []string{"go"}) {
-		t.Errorf("explicit merge keys = %v, want [go]", names)
-	}
-}
-
-func TestMergeIndexers_ExplicitPreservesExistingVersion(t *testing.T) {
-	// When --lang brings no version, init must not downgrade
-	// the version that core install already wrote for the
-	// same language.
-	existing := map[string]string{"go": "v0.1.0"}
-	selected := map[string]string{"go": ""}
-	got := mergeIndexers(existing, selected, true)
-	if got["go"] != "v0.1.0" {
-		t.Errorf("explicit merge with empty selected version overwrote existing: got %q, want %q", got["go"], "v0.1.0")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resetAPIGlobal(t)
+			for _, name := range tc.registers {
+				api.Global.Register(fakeFrontend{name: name})
+			}
+			got, err := resolveInitLangs(tc.requested, tc.available)
+			if tc.wantOK {
+				if err != nil {
+					t.Fatalf("unexpected err: %v", err)
+				}
+				if !stringSliceEqual(got, tc.wantLangs) {
+					t.Errorf("got %v, want %v", got, tc.wantLangs)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			msg := err.Error()
+			for _, want := range tc.wantInErr {
+				if !strings.Contains(msg, want) {
+					t.Errorf("err = %q, want substring %q", msg, want)
+				}
+			}
+		})
 	}
 }
 
-func TestMergeIndexers_ImplicitUnions(t *testing.T) {
-	existing := map[string]string{"rust": ""}
-	selected := map[string]string{"go": ""}
-	got := mergeIndexers(existing, selected, false)
-	names := mapKeys(got)
-	sort.Strings(names)
-	if !stringSliceEqual(names, []string{"go", "rust"}) {
-		t.Errorf("implicit merge keys = %v, want [go rust]", names)
+func TestMergeIndexers(t *testing.T) {
+	tests := []struct {
+		name        string
+		existing    map[string]string
+		selected    map[string]string
+		explicit    bool
+		wantKeys    []string
+		wantVersion map[string]string
+	}{
+		{
+			name:     "explicit_replaces",
+			existing: map[string]string{"rust": "v0.2.0", "go": "v0.1.0"},
+			selected: map[string]string{"go": ""},
+			explicit: true,
+			wantKeys: []string{"go"},
+		},
+		{
+			name:     "explicit_preserves_existing_version",
+			existing: map[string]string{"go": "v0.1.0"},
+			selected: map[string]string{"go": ""},
+			explicit: true,
+			wantKeys: []string{"go"},
+			wantVersion: map[string]string{
+				"go": "v0.1.0",
+			},
+		},
+		{
+			name:     "implicit_unions",
+			existing: map[string]string{"rust": ""},
+			selected: map[string]string{"go": ""},
+			explicit: false,
+			wantKeys: []string{"go", "rust"},
+		},
+		{
+			name:     "implicit_keeps_existing_even_if_missing_from_selected",
+			existing: map[string]string{"rust": ""},
+			selected: map[string]string{"rust": ""},
+			explicit: false,
+			wantKeys: []string{"rust"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mergeIndexers(tc.existing, tc.selected, tc.explicit)
+			names := mapKeys(got)
+			if !stringSliceEqual(names, tc.wantKeys) {
+				t.Errorf("merge keys = %v, want %v", names, tc.wantKeys)
+			}
+			for k, wantVer := range tc.wantVersion {
+				if got[k] != wantVer {
+					t.Errorf("merge[%q] = %q, want %q", k, got[k], wantVer)
+				}
+			}
+		})
 	}
 }
 
-func TestMergeIndexers_ImplicitKeepsExistingEvenIfMissingFromSelected(t *testing.T) {
-	existing := map[string]string{"rust": ""}
-	selected := map[string]string{"rust": ""}
-	got := mergeIndexers(existing, selected, false)
-	names := mapKeys(got)
-	if !stringSliceEqual(names, []string{"rust"}) {
-		t.Errorf("got %v, want [rust] (no dupes)", names)
+func TestRunInit(t *testing.T) {
+	tests := []struct {
+		name         string
+		registers    []string
+		args         []string
+		wantOK       bool
+		wantIndexers []string
+		wantInErr    []string
+		wantNoConfig bool
+		wantDBExists bool
+	}{
+		{
+			name:         "no_cores_errors_before_writing_config",
+			wantOK:       false,
+			wantInErr:    []string{"no language cores registered"},
+			wantNoConfig: true,
+		},
+		{
+			name:         "all_available_single_writes_config_with_that_core",
+			registers:    []string{"go"},
+			wantOK:       true,
+			wantIndexers: []string{"go"},
+			wantDBExists: true,
+		},
+		{
+			name:         "all_available_multiple_writes_all_sorted",
+			registers:    []string{"rust", "go"},
+			wantOK:       true,
+			wantIndexers: []string{"go", "rust"},
+		},
+		{
+			name:         "explicit_lang_subset_writes_subset",
+			registers:    []string{"go", "rust"},
+			args:         []string{"--lang", "rust"},
+			wantOK:       true,
+			wantIndexers: []string{"rust"},
+		},
+		{
+			name:      "explicit_unknown_errors",
+			registers: []string{"go"},
+			args:      []string{"--lang", "python"},
+			wantOK:    false,
+			wantInErr: []string{`"python"`},
+		},
 	}
-}
-
-func TestRunInit_NoCores_ErrorsBeforeWritingConfig(t *testing.T) {
-	resetAPIGlobal(t)
-	dir := t.TempDir()
-	withCwd(t, dir)
-	err := runInit(t.Context(), newInitCmd(t), nil)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "no language cores registered") {
-		t.Errorf("err = %q, want mention of no cores registered", err.Error())
-	}
-	if _, statErr := os.Stat(config.DefaultPath()); !os.IsNotExist(statErr) {
-		t.Errorf("expected no config to be written, stat err = %v", statErr)
-	}
-}
-
-func TestRunInit_AllAvailableSingle_WritesConfigWithThatCore(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	dir := t.TempDir()
-	withCwd(t, dir)
-	if err := runInit(t.Context(), newInitCmd(t), nil); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	cfg := readConfig(t)
-	names := mapKeys(cfg.Indexers)
-	if !stringSliceEqual(names, []string{"go"}) {
-		t.Errorf("indexers = %v, want [go]", names)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".mekami", "graph.db")); err != nil {
-		t.Errorf("expected graph.db to exist: %v", err)
-	}
-}
-
-func TestRunInit_AllAvailableMultiple_WritesAllSorted(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "rust"})
-	api.Global.Register(fakeFrontend{name: "go"})
-	dir := t.TempDir()
-	withCwd(t, dir)
-	if err := runInit(t.Context(), newInitCmd(t), nil); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	cfg := readConfig(t)
-	names := mapKeys(cfg.Indexers)
-	if !stringSliceEqual(names, []string{"go", "rust"}) {
-		t.Errorf("indexers = %v, want [go rust]", names)
-	}
-}
-
-func TestRunInit_ExplicitLangSubset_WritesSubset(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	api.Global.Register(fakeFrontend{name: "rust"})
-	dir := t.TempDir()
-	withCwd(t, dir)
-	cmd := newInitCmd(t, "--lang", "rust")
-	if err := runInit(t.Context(), cmd, nil); err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	cfg := readConfig(t)
-	if !stringSliceEqual(mapKeys(cfg.Indexers), []string{"rust"}) {
-		t.Errorf("indexers = %v, want [rust]", mapKeys(cfg.Indexers))
-	}
-}
-
-func TestRunInit_ExplicitUnknown_Errors(t *testing.T) {
-	resetAPIGlobal(t)
-	api.Global.Register(fakeFrontend{name: "go"})
-	dir := t.TempDir()
-	withCwd(t, dir)
-	cmd := newInitCmd(t, "--lang", "python")
-	err := runInit(t.Context(), cmd, nil)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), `"python"`) {
-		t.Errorf("err = %q, want mention of python", err.Error())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resetAPIGlobal(t)
+			for _, name := range tc.registers {
+				api.Global.Register(fakeFrontend{name: name})
+			}
+			dir := t.TempDir()
+			withCwd(t, dir)
+			err := runInit(t.Context(), newInitCmd(t, tc.args...), nil)
+			if !tc.wantOK {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				msg := err.Error()
+				for _, want := range tc.wantInErr {
+					if !strings.Contains(msg, want) {
+						t.Errorf("err = %q, want substring %q", msg, want)
+					}
+				}
+				if tc.wantNoConfig {
+					if _, statErr := os.Stat(config.DefaultPath()); !os.IsNotExist(statErr) {
+						t.Errorf("expected no config to be written, stat err = %v", statErr)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			cfg := readConfig(t)
+			if !stringSliceEqual(mapKeys(cfg.Indexers), tc.wantIndexers) {
+				t.Errorf("indexers = %v, want %v", mapKeys(cfg.Indexers), tc.wantIndexers)
+			}
+			if tc.wantDBExists {
+				if _, err := os.Stat(filepath.Join(dir, ".mekami", "graph.db")); err != nil {
+					t.Errorf("expected graph.db to exist: %v", err)
+				}
+			}
+		})
 	}
 }
 
@@ -803,56 +822,66 @@ func TestServiceCommands_LegacyFlatFormFailsCleanly(t *testing.T) {
 	}
 }
 
-// TestRunServiceInstall_DispatchesToPlatformImpl is a lightweight
-// smoke test that the public runner wiring actually calls the
-// per-platform serviceInstall. We exercise the path by checking
-// the return value matches what the per-platform function would
-// produce: on linux/darwin it depends on a real user bus, so we
-// only run on other platforms (where serviceInstall returns the
-// "unsupported platform" error from service_other.go). That
-// confirms the dispatch reached the platform layer. On
-// linux/darwin the test skips with a clear message.
-func TestRunServiceInstall_DispatchesToPlatformImpl(t *testing.T) {
-	err := runServiceInstall()
-	if err == nil {
-		// On linux+systemd, this would write a real unit;
-		// on linux without systemd, daemon-reload would
-		// fail. Either way the test should not silently
-		// pass on CI runners. Skip on success because the
-		// environment is not the test's concern; we just
-		// want the dispatch contract.
-		t.Skip("runServiceInstall returned nil; environment-specific " +
-			"success is not asserted here (see integration tests for " +
-			"the full systemd round-trip)")
+// TestRunServiceDispatch is a lightweight smoke test that the
+// public runner wiring actually calls the per-platform functions.
+// We exercise the path by checking the return value matches what
+// the per-platform code would produce: on linux/darwin it depends
+// on a real user bus, so we skip on success because the
+// environment is not the test's concern; we just want the
+// dispatch contract. See the integration tests (build tag
+// `integration && linux`) for the full systemd round-trip.
+func TestRunServiceDispatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		call    func() error
+		skipMsg string
+		// acceptAnyInErr lists substrings that, if present in
+		// the error, prove the dispatch reached the platform
+		// layer (per-OS error wording varies).
+		acceptAnyInErr []string
+	}{
+		{
+			name: "install",
+			call: runServiceInstall,
+			skipMsg: "runServiceInstall returned nil; environment-specific " +
+				"success is not asserted here (see integration tests for " +
+				"the full systemd round-trip)",
+			acceptAnyInErr: []string{
+				"unsupported platform",
+				"systemctl",
+				"daemon-reload",
+				"mkdir",
+				"write unit",
+			},
+		},
+		{
+			name: "uninstall",
+			call: runServiceUninstall,
+			skipMsg: "runServiceUninstall returned nil; environment-specific " +
+				"success is not asserted here",
+			acceptAnyInErr: []string{
+				"unsupported platform",
+				"systemctl",
+				"launchctl",
+				"remove unit",
+				"remove plist",
+			},
+		},
 	}
-	// On unsupported platforms the dispatch must reach
-	// service_other.go's "unsupported platform" error.
-	if !strings.Contains(err.Error(), "unsupported platform") &&
-		!strings.Contains(err.Error(), "systemctl") &&
-		!strings.Contains(err.Error(), "daemon-reload") &&
-		!strings.Contains(err.Error(), "mkdir") &&
-		!strings.Contains(err.Error(), "write unit") {
-		t.Errorf("runServiceInstall returned an unexpected error "+
-			"(should be a platform/service-manager error): %v", err)
-	}
-}
-
-// TestRunServiceUninstall_DispatchesToPlatformImpl mirrors
-// TestRunServiceInstall_DispatchesToPlatformImpl for the uninstall
-// path. Same rationale: confirm the cobra dispatch reached the
-// per-platform code, without depending on a live user bus.
-func TestRunServiceUninstall_DispatchesToPlatformImpl(t *testing.T) {
-	err := runServiceUninstall()
-	if err == nil {
-		t.Skip("runServiceUninstall returned nil; environment-specific " +
-			"success is not asserted here")
-	}
-	if !strings.Contains(err.Error(), "unsupported platform") &&
-		!strings.Contains(err.Error(), "systemctl") &&
-		!strings.Contains(err.Error(), "launchctl") &&
-		!strings.Contains(err.Error(), "remove unit") &&
-		!strings.Contains(err.Error(), "remove plist") {
-		t.Errorf("runServiceUninstall returned an unexpected error "+
-			"(should be a platform/service-manager error): %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			if err == nil {
+				t.Skip(tc.skipMsg)
+			}
+			for _, want := range tc.acceptAnyInErr {
+				if strings.Contains(err.Error(), want) {
+					return
+				}
+			}
+			t.Errorf("%s returned an unexpected error "+
+				"(should be a platform/service-manager error): %v",
+				tc.name, err)
+		})
 	}
 }
