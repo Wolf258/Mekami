@@ -36,12 +36,25 @@ in your copy if your layout differs from the one above.
 
 ## What runs against the workspace
 
-- `go test ./mekami-core/integration_test/...` (the `-tags=integration`
-  suite that depends on `mekami-core-go`).
-- `go test ./mekami-cli/internal/watch/...` (uses a blank import
-  of `mekami-core-go` to register the Go frontend).
+- `go test -tags integration ./mekami-core/integration_test/...`
+  (the ingest suite that depends on `mekami-core-go`).
+- `go test -tags integration ./mekami-cli/internal/watch/...`
+  (the watch end-to-end suite — fsnotify / poller → build →
+  DB propagation).
+- `go test -tags integration ./mekami-cli/cmd/mekami/... -run ServiceLifecycle`
+  (the supervisor / service-install lifecycle; requires
+  `systemd --user`).
 - `./build.sh` (regenerates `all_gen.go` from whatever cores
   are resolvable, then builds the binary).
+
+The `integration` build tag is the single switch that gates all
+of the above. With the committed `go.work` (cli+core only) the
+default `go test ./...` skips them. With the e2e workspace they
+all run together:
+
+```bash
+go test -tags integration ./...
+```
 
 For the common case — fixing a CLI bug, reading core code —
 the committed `go.work` that ships with the repo is enough;

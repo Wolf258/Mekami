@@ -1,7 +1,6 @@
 package watch
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -9,9 +8,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	_ "github.com/Wolf258/mekami-core-go"
-
-	"github.com/Wolf258/mekami-core/ingest"
+	"github.com/Wolf258/mekami-cli/internal/config"
 )
 
 // fsnotifyEvent is a tiny test shim so the Translate test does not
@@ -59,19 +56,6 @@ func writeGoMod(dir, modPath string) error {
 		[]byte("module "+modPath+"\n\ngo 1.22\n"), 0o644)
 }
 
-// ingestBuild is a thin shim around ingest.Build for end-to-end
-// tests. The test file needs the symbol so the import in the test
-// file does not have to be repeated.
-func ingestBuild(ctx context.Context, root, dbPath string) error {
-	_, err := ingest.Build(ctx, ingest.BuildOptions{
-		Root:   root,
-		DBPath: dbPath,
-		Clean:  true,
-		Quiet:  true,
-	})
-	return err
-}
-
 // queryDB opens the DB in read-only mode and runs a query that
 // returns a single bool: true if any row matched. Used by tests
 // that just want to know "is this symbol in the index?".
@@ -91,4 +75,36 @@ func queryDB(t *testing.T, dbPath, sqlStr string, args ...any) bool {
 		t.Fatalf("query: %v", err)
 	}
 	return true
+}
+
+func symbolInDB(t *testing.T, dbPath, qname string) bool {
+	t.Helper()
+	return queryDB(t, dbPath, "SELECT 1 FROM symbols WHERE qualified_name = ? LIMIT 1", qname)
+}
+
+func configOnStartBuild() config.WatchConfig {
+	c := config.DefaultWatch()
+	c.OnStart = "build"
+	return c
+}
+
+func configOnStartSkip() config.WatchConfig {
+	c := config.DefaultWatch()
+	c.OnStart = "skip"
+	c.DebounceMs = 50
+	return c
+}
+
+func pollerFastConfig() config.WatchConfig {
+	c := config.DefaultWatch()
+	c.OnStart = "skip"
+	c.DebounceMs = 50
+	return c
+}
+
+// neverStop returns a channel that is never closed. Used by tests
+// that only want to drive the coalescer through one or two Drain
+// calls and rely on the debounce window to deliver the batch.
+func neverStop() <-chan struct{} {
+	return make(chan struct{})
 }

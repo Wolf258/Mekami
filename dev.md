@@ -198,6 +198,42 @@ go test ./...
 ./build.sh && ./mekami core-list
 ```
 
+## Test tiers
+
+The repo has two test tiers, distinguished by the `integration`
+build tag:
+
+- **Default (`go test ./...`)** — fast unit tests with stubs.
+  Does not require the e2e workspace. Does not load
+  `mekami-core-go` into the test binary. Safe to run on every
+  commit; finishes in seconds.
+- **`-tags integration`** — end-to-end tests that need a real
+  language frontend registered in the running test binary.
+  Today that means:
+  - `mekami-core/integration_test/...` — ingest pipeline
+    against real Go source.
+  - `mekami-cli/cmd/mekami/service_integration_test.go` —
+    supervisor / watchdog / service-install lifecycle
+    (requires `systemd --user`).
+  - `mekami-cli/internal/watch/integration_test.go` — full
+    fsnotify / poller → build → DB propagation.
+
+  Run them locally with the e2e workspace:
+
+  ```bash
+  cp go.work.e2e.example go.work
+  go work sync
+  go test -tags integration ./...
+  rm go.work go.work.sum
+  ```
+
+  The `integration` tag is the same tag the `service_lifecycle`
+  tests already used, so this is a unification rather than a
+  new convention. The rule is simple: any test that needs
+  `mekami-api` or `mekami-core-go` actually present in the
+  test binary gets the `integration` tag and stays out of
+  `go test ./...` by default.
+
 ## Adding a new language core
 
 Suppose you're adding `mekami-core-rust`.
@@ -265,9 +301,13 @@ Suppose you're adding `mekami-core-rust`.
   full end-to-end tests that require `mekami-core-go` as a
   test-only dependency. The integration test suite is the
   authoritative coverage of the ingest pipeline + real Go
-  frontend interaction. Run it locally with:
+  frontend interaction. Run it locally with the e2e workspace
+  (see "Test tiers" above):
   ```bash
+  cp go.work.e2e.example go.work
+  go work sync
   ( cd mekami-core && go test -tags=integration ./integration_test/... )
+  rm go.work go.work.sum
   ```
 
 ## Releasing a new version

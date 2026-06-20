@@ -2,13 +2,10 @@ package watch
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/Wolf258/mekami-cli/internal/config"
 )
 
 func TestCoalescer_DebounceCollapses(t *testing.T) {
@@ -204,78 +201,6 @@ func TestTranslate(t *testing.T) {
 	}
 }
 
-func TestRun_OnceBuildsAndStops(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	if err := writeGoMod(dir, "testmod"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeFile(filepath.Join(dir, "main.go"), "package foo\nfunc A() int { return 1 }\n"); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	done := make(chan struct{})
-	var stats *Stats
-	var runErr error
-	go func() {
-		stats, runErr = Run(ctx, Options{
-			Root:   dir,
-			DBPath: dbPath,
-			Config: configOnStartBuild(),
-			Once:   true,
-			Quiet:  true,
-			Logger: StdLogger{W: nil},
-		})
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatalf("Run(Once) did not return in 3s")
-	}
-	if runErr != nil {
-		t.Fatalf("Run: %v", runErr)
-	}
-	if stats.FullRebuilds.Load() < 1 {
-		t.Fatalf("expected at least 1 full rebuild, got %d", stats.FullRebuilds.Load())
-	}
-}
-
-func TestRun_ContextCancelStopsGracefully(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	if err := writeGoMod(dir, "testmod"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeFile(filepath.Join(dir, "main.go"), "package foo\nfunc A() int { return 1 }\n"); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := Run(ctx, Options{
-			Root:   dir,
-			DBPath: dbPath,
-			Config: configOnStartSkip(),
-			Quiet:  true,
-			Logger: StdLogger{W: nil},
-		})
-		done <- err
-	}()
-	// Give Run a moment to start the fsnotify loop.
-	time.Sleep(150 * time.Millisecond)
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatalf("Run returned unexpected error: %v", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatalf("Run did not return after cancel")
-	}
-}
-
 func TestRun_NoRootErrors(t *testing.T) {
 	_, err := Run(context.Background(), Options{
 		DBPath: "/tmp/x.db",
@@ -284,99 +209,4 @@ func TestRun_NoRootErrors(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when Root is empty")
 	}
-}
-
-// TestRun_EndToEnd exercises the full flow: skip on-start, then
-// modify a file and verify the DB reflects the change. This is the
-// most realistic test: it actually waits for fsnotify to deliver
-// events, the coalescer to batch them, and the build pipeline to
-// update the DB.
-func TestRun_EndToEnd(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	if err := writeGoMod(dir, "testmod"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeFile(filepath.Join(dir, "main.go"), "package foo\nfunc A() int { return 1 }\n"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Pre-seed: full build so the DB has last_root set.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := buildOnce(ctx, dir, dbPath); err != nil {
-		t.Fatalf("prebuild: %v", err)
-	}
-
-	cfg := configOnStartSkip()
-	cfg.DebounceMs = 50
-
-	runCtx, runCancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		_, _ = Run(runCtx, Options{
-			Root:   dir,
-			DBPath: dbPath,
-			Config: cfg,
-			Quiet:  true,
-			Logger: StdLogger{W: nil},
-		})
-		close(done)
-	}()
-
-	// Give the watcher a moment to subscribe.
-	time.Sleep(200 * time.Millisecond)
-
-	// Modify main.go: rename A -> A2.
-	if err := writeFile(filepath.Join(dir, "main.go"), "package foo\nfunc A2() int { return 42 }\n"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Poll for the rename to land. Generous timeout because
-	// fsnotify + debounce + SQLite can take a moment.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if symbolInDB(t, dbPath, "foo.A2") && !symbolInDB(t, dbPath, "foo.A") {
-			runCancel()
-			<-done
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	runCancel()
-	<-done
-	t.Fatalf("watcher did not pick up rename in time")
-}
-
-// buildOnce is a thin shim around ingest.Build used only by the
-// end-to-end test. Kept here (not in testhelpers) because it's
-// specific to the watch integration suite.
-func buildOnce(ctx context.Context, root, dbPath string) error {
-	return ingestBuild(ctx, root, dbPath)
-}
-
-func symbolInDB(t *testing.T, dbPath, qname string) bool {
-	t.Helper()
-	row := queryDB(t, dbPath, "SELECT 1 FROM symbols WHERE qualified_name = ? LIMIT 1", qname)
-	return row
-}
-
-// neverStop returns a channel that is never closed. Used by tests
-// that only want to drive the coalescer through one or two Drain
-// calls and rely on the debounce window to deliver the batch.
-func neverStop() <-chan struct{} {
-	return make(chan struct{})
-}
-
-func configOnStartBuild() config.WatchConfig {
-	c := config.DefaultWatch()
-	c.OnStart = "build"
-	return c
-}
-
-func configOnStartSkip() config.WatchConfig {
-	c := config.DefaultWatch()
-	c.OnStart = "skip"
-	c.DebounceMs = 50
-	return c
 }

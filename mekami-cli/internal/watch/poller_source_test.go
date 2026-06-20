@@ -1,13 +1,10 @@
 package watch
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/Wolf258/mekami-cli/internal/config"
 )
 
 // readEvents drains up to n events from src with a timeout. It
@@ -158,65 +155,4 @@ func TestPoller_StopUnblocksReader(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatalf("Events channel not closed after Stop")
 	}
-}
-
-func TestPoller_RunLoopIntegration(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	if err := writeGoMod(dir, "testmod"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeFile(filepath.Join(dir, "main.go"), "package foo\nfunc A() int { return 1 }\n"); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := ingestBuild(ctx, dir, dbPath); err != nil {
-		t.Fatalf("prebuild: %v", err)
-	}
-
-	src := NewPollerSource(dir, 50*time.Millisecond, StdLogger{W: nil})
-	loopDone := make(chan struct{})
-	stats := &Stats{}
-	go func() {
-		_ = RunLoop(ctx, src, Options{
-			Root:   dir,
-			DBPath: dbPath,
-			Config: pollerFastConfig(),
-			Logger: StdLogger{W: nil},
-			Quiet:  true,
-		}, stats)
-		close(loopDone)
-	}()
-	defer func() {
-		cancel()
-		<-loopDone
-	}()
-
-	time.Sleep(80 * time.Millisecond)
-
-	path := filepath.Join(dir, "main.go")
-	future := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(path, future, future); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeFile(path, "package foo\nfunc B() int { return 42 }\n"); err != nil {
-		t.Fatal(err)
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if symbolInDB(t, dbPath, "foo.B") && !symbolInDB(t, dbPath, "foo.A") {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("poller did not propagate change in time")
-}
-
-func pollerFastConfig() config.WatchConfig {
-	c := config.DefaultWatch()
-	c.OnStart = "skip"
-	c.DebounceMs = 50
-	return c
 }
