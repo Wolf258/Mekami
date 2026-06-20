@@ -1,6 +1,5 @@
 .mekami/
 mekami-core-go/
-go.work
 go.work.sum
 *.db
 *.db-wal

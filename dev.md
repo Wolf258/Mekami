@@ -24,14 +24,22 @@ component can be consumed, versioned, and tested independently:
 ```
 Wolf258/mekami-api         ← api/v1/ (the Frontend interface contract)
 Wolf258/mekami-core        ← language-agnostic indexing pipeline
-Wolf258/Mekami             ← umbrella: mekami-cli only
+Wolf258/Mekami             ← umbrella: mekami-cli + mekami-core + go.work
 Wolf258/mekami-core-go     ← Go language frontend
 ```
 
-`mekami-core` and `mekami-cli` are independent Go modules in
-independent repositories. The CLI imports `mekami-core` by
-version and blank-imports `mekami-core-go` from the generated
-`all_gen.go` to register the Go frontend in `api.Global`.
+The `Mekami` umbrella repo contains `mekami-cli/` and
+`mekami-core/` as sibling subdirectories, wired together by a
+committed `go.work` file at the repo root. The CLI imports
+`mekami-core` by version (resolved through the workspace) and
+blank-imports `mekami-core-go` from the generated `all_gen.go`
+to register the Go frontend in `api.Global`.
+
+`mekami-api` and `mekami-core-go` remain external repositories.
+They are pulled from the Go module proxy by version, except
+during e2e work where they are brought into the workspace via
+`go.work.e2e.example` (see "Local dev with multiple modules"
+below).
 
 All modules are published under `github.com/Wolf258/...`. The
 `mekami/...` prefix is not used because the GitHub org of that
@@ -68,13 +76,18 @@ git clone https://github.com/Wolf258/Mekami
 cd Mekami
 go version                      # must be 1.26+
 
-# Test the CLI.
-( cd mekami-cli && go test ./... )
+# Test everything in the workspace (cli + core).
+go test ./...
 
 # Build the binary.
 ./build.sh
 ./mekami --version
 ```
+
+The committed `go.work` at the repo root pulls in
+`./mekami-cli` and `./mekami-core` so `go test ./...` from the
+root covers both modules. No manual workspace setup is needed
+for the common case.
 
 `./build.sh` runs the dev-allgen script, regenerates
 `mekami-core/frontend/all_gen/all_gen.go` with whatever cores
@@ -88,37 +101,30 @@ version. No `replace` directive is required.
 
 ## Local dev with multiple modules
 
-If you want to develop `mekami-cli`, `mekami-core`, and a core
-like `mekami-core-go` simultaneously and have your local edits
-take effect without publishing tags, use a local `go.work` file
-at the root of any of the repos (the workspace is a dev-only
-tool).
+If you want to develop `mekami-cli`, `mekami-core`, **and**
+either `mekami-api` or `mekami-core-go` simultaneously so local
+edits to those external repos take effect, use the e2e
+workspace template.
 
 ### Steps
 
-1. Clone the repos as siblings:
+1. Clone the external repos as siblings of this one (only the
+   ones you actually want to edit locally):
    ```bash
    git clone https://github.com/Wolf258/Mekami
-   git clone https://github.com/Wolf258/mekami-core
+   git clone https://github.com/Wolf258/mekami-api
    git clone https://github.com/Wolf258/mekami-core-go
    ```
 
-2. Create a `go.work` file in any of the three repo roots. **This
-   file is gitignored** — it's yours, not the project's:
+2. Copy the e2e template over the committed `go.work`:
    ```bash
    cd Mekami
-   cat > go.work <<'EOF'
-   go 1.26.3
-
-   use (
-       ./mekami-cli
-       ../mekami-core
-       ../mekami-core-go
-   )
-   EOF
+   cp go.work.e2e.example go.work
+   go work sync
    ```
-   The sibling-relative paths assume the repos sit next to
-   each other on disk; adjust if your layout differs.
+   The resulting `go.work` is gitignored — only the template
+   is committed. Adjust the sibling paths in your copy if your
+   layout differs.
 
 3. Verify the workspace resolves:
    ```bash
@@ -135,15 +141,23 @@ tool).
    ./build.sh
    ```
 
-### Why `go.work` is gitignored
+6. When you're done with e2e, restore the committed workspace
+   so other tooling sees the cli+core layout:
+   ```bash
+   rm go.work go.work.sum
+   ```
 
-- A fresh clone of any Mekami repo should compile and test
-  against published module versions, not against whatever
-  happens to be sitting in a sibling directory on your machine.
-- Each contributor's `go.work` may differ (different cores, Go
-  version, etc.). It's a local concern.
+### Why the committed `go.work` and the e2e template are split
 
-The CI side tests each module in its own repository.
+The committed `go.work` lists only the modules that actually
+live in this repo (`./mekami-cli` and `./mekami-core`), so a
+fresh clone compiles and tests without depending on whatever
+happens to be sitting in sibling directories on the
+contributor's machine. The `go.work.e2e.example` template
+documents the opt-in layout for contributors who are also
+editing `mekami-api` or `mekami-core-go` locally — the
+generated `go.work` (copied from the template) is gitignored
+because its sibling-relative paths are a local concern.
 
 ### Useful `go work` commands
 
@@ -164,7 +178,7 @@ go work edit -dropreplace=../mekami-core-rust
 ## Common commands
 
 ```bash
-# Run all tests across the workspace (uses go.work if present).
+# Run all tests across the workspace (uses the committed go.work).
 go test ./...
 
 # Test a single module.
@@ -280,13 +294,15 @@ consumer.
 
 ### `pattern ./... matches no packages`
 
-You're running `go test ./...` from the repo root, but the
-default `go.work`-less mode treats each `go.mod` as a separate
-module and the root has no `go.mod`. Either:
+You're running `go test ./...` from a directory that has no
+`go.mod` and is not part of the workspace. Make sure you're at
+the repo root (where `go.work` lives) and that the file is
+intact. To run a single module in isolation:
 
-- `cd mekami-cli && go test ./...` (etc., one module at a time).
-- Set up a local `go.work` (see "Local dev with multiple
-  modules" above) to make `go test ./...` cover the whole tree.
+```bash
+( cd mekami-cli  && go test ./... )
+( cd mekami-core && go test ./... )
+```
 
 ### A core is installed in `config.json` but not in the running binary
 
@@ -303,15 +319,21 @@ In production (AUR install), the binary is read-only and the
 user needs to update the package to pick up newly installed
 cores.
 
-### `go.work` got committed by accident
+### Accidentally overwrote `go.work` with the e2e template
+
+The committed `go.work` lists only `./mekami-cli` and
+`./mekami-core` and is meant to be tracked. If you copied
+`go.work.e2e.example` over it and want to restore the
+committed content:
 
 ```bash
-git rm --cached go.work go.work.sum
-git commit -m "untrack go.work (local-only)"
+git checkout -- go.work
+rm -f go.work.sum
 ```
 
-The files are already in `.gitignore`, so this only happens
-once.
+The e2e template lives at `go.work.e2e.example`; the live
+`go.work.sum` is gitignored because it's lock state from
+`go work sync`.
 
 ## See also
 

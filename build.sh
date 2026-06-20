@@ -60,9 +60,9 @@ go run ./mekami-core/scripts/dev-allgen "$all_gen"
 version="${1:-dev}"
 
 # Stamp the version into the binary. The variable path lives in
-# github.com/mekami/mekami-cli/internal/install (see
+# github.com/Wolf258/mekami-cli/internal/install (see
 # mekami-cli/internal/install/install.go). The same expression is
 # inlined in .aur/mekami/PKGBUILD; keep them in lockstep.
-ldflags="-X github.com/mekami/mekami-cli/internal/install.version=${version}"
+ldflags="-X github.com/Wolf258/mekami-cli/internal/install.version=${version}"
 
 go build -ldflags "$ldflags" -o mekami ./mekami-cli
