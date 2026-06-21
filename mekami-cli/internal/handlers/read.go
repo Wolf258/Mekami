@@ -13,12 +13,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/Wolf258/mekami-cli/internal/format"
 	"github.com/Wolf258/mekami-cli/internal/core/diff"
 	"github.com/Wolf258/mekami-cli/internal/core/grep"
+	"github.com/Wolf258/mekami-cli/internal/core/model"
 	"github.com/Wolf258/mekami-cli/internal/core/path"
 	"github.com/Wolf258/mekami-cli/internal/core/queries"
 	"github.com/Wolf258/mekami-cli/internal/core/store"
@@ -48,13 +50,79 @@ func SourceError(err error) string {
 	return "error: " + err.Error()
 }
 
+// defaultHead is the default value of --head when the caller omits
+// the flag. Matches the description in naming.Specs.
+const defaultHead = 30
+
+// capFor returns a format.Cap from args["head"]. head=0 disables
+// the cap (Shown==Total, Truncated=false). The hint is looked up
+// from the kind so a downstream formatter can render the footer.
+func capFor(total int, args naming.ArgMap, kind format.ListKind) format.Cap {
+	head := args.GetInt("head", defaultHead)
+	if head < 0 {
+		head = 0
+	}
+	if head == 0 || total <= head {
+		return format.Cap{Total: total, Shown: total, Truncated: false, Hint: format.HintFor(kind)}
+	}
+	return format.Cap{Total: total, Shown: head, Truncated: true, Hint: format.HintFor(kind)}
+}
+
+// listPayload wraps a list-shaped result with its truncation
+// metadata. The JSON shape is { items: [...], cap: {...} }.
+//
+// When the cap is uninteresting (nothing was truncated) the
+// caller returns the plain slice so the historical JSON shape
+// (a bare list) is preserved for clients that already parse
+// the response as a list.
+type listPayload struct {
+	Items any        `json:"items"`
+	Cap   format.Cap `json:"cap"`
+}
+
+func payloadOrString(items any, cap format.Cap) any {
+	if !cap.Truncated {
+		return items
+	}
+	return listPayload{Items: applyCapToSlice(items, cap.Shown), Cap: cap}
+}
+
+// applyCapToSlice truncates a slice-shaped `items` to the first n
+// entries when n is positive and the underlying value is a slice.
+// Non-slice inputs are returned unchanged (defensive: callers
+// should pass a slice). Used by payloadOrString to drop the tail
+// of the result before wrapping it in listPayload.
+//
+// The function works via reflect so it does not depend on the
+// concrete element type of each handler. For an unrecognized
+// shape (e.g. *model.FileNode) the caller is expected to have
+// already truncated; we return the original.
+func applyCapToSlice(items any, n int) any {
+	if n <= 0 {
+		return items
+	}
+	v := reflect.ValueOf(items)
+	if !v.IsValid() || v.Kind() != reflect.Slice {
+		return items
+	}
+	if v.Len() <= n {
+		return items
+	}
+	return v.Slice(0, n).Interface()
+}
+
 // FindSymbol returns the symbol search results.
 func FindSymbol(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
 	q := args.GetString("query", "")
 	kind := args.GetString("kind", "")
 	prefix := args.GetString("path_prefix", "")
-	limit := args.GetInt("limit", 50)
-	return queries.SearchSymbols(ctx, s, q, kind, prefix, limit)
+	limit := args.GetInt("limit", 200)
+	syms, err := queries.SearchSymbols(ctx, s, q, kind, prefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	cap := capFor(len(syms), args, format.KindSymbols)
+	return payloadOrString(syms, cap), nil
 }
 
 // GetSymbol returns a symbol's source. With body=false (the default)
@@ -138,24 +206,26 @@ func WhoCalls(ctx context.Context, s *store.Store, args naming.ArgMap) (any, err
 	qn := args.GetString("qualified_name", "")
 	refKind := args.GetString("ref_kind", "")
 	prefix := args.GetString("path_prefix", "")
-	limit := args.GetInt("limit", 100)
+	limit := args.GetInt("limit", 200)
 	refs, err := queries.RefsTo(ctx, s, qn, refKind, prefix, limit)
 	if err != nil {
 		return nil, err
 	}
-	return format.RefsTo(qn, refs), nil
+	cap := capFor(len(refs), args, format.KindRefs)
+	return payloadOrString(refs, cap), nil
 }
 
 // WhatCalls returns outgoing references from a symbol.
 func WhatCalls(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
 	qn := args.GetString("qualified_name", "")
 	prefix := args.GetString("path_prefix", "")
-	limit := args.GetInt("limit", 50)
+	limit := args.GetInt("limit", 200)
 	refs, err := queries.RefsFrom(ctx, s, qn, prefix, "", limit)
 	if err != nil {
 		return nil, err
 	}
-	return format.RefsFrom(qn, refs), nil
+	cap := capFor(len(refs), args, format.KindOutgoing)
+	return payloadOrString(refs, cap), nil
 }
 
 // ListFile returns the symbols in a file.
@@ -177,9 +247,10 @@ func ListFile(ctx context.Context, s *store.Store, args naming.ArgMap) (any, err
 		if len(other) > 0 && other[0] == syms[0].FilePath {
 			other = other[1:]
 		}
+		cap := capFor(len(syms), args, format.KindSymbols)
 		hdr := fmt.Sprintf("note: %q is ambiguous; matched %d files. Showing %s. Other matches: %v\n\n",
 			path, count, syms[0].FilePath, other)
-		return hdr + format.FileOutline(syms), nil
+		return hdr + format.FileOutline(syms, cap), nil
 	}
 	syms, err := queries.FileOutline(ctx, s, path)
 	if err != nil {
@@ -188,7 +259,8 @@ func ListFile(ctx context.Context, s *store.Store, args naming.ArgMap) (any, err
 	if len(syms) == 0 {
 		return fmt.Sprintf("file %q has no indexed symbols (it may be empty or all in test files)", candidates[0]), nil
 	}
-	return format.FileOutline(syms), nil
+	cap := capFor(len(syms), args, format.KindSymbols)
+	return payloadOrString(syms, cap), nil
 }
 
 // TraceCalls returns the call-path edges between two symbols.
@@ -215,12 +287,87 @@ func TraceCalls(ctx context.Context, s *store.Store, args naming.ArgMap) (any, e
 	return edges, nil
 }
 
-// ListFiles returns the project file tree.
+// ListFiles returns the project file tree. The --head cap is
+// applied to the total count of file leaves in the tree (a
+// directory count would be misleading because the tree is
+// dominated by nested sub-trees, and an LLM asking for "the
+// file list" cares about the leaves, not the top-level
+// directory fan-out). When the cap is hit, the tree is rebuilt
+// to include only the first Shown leaves in pre-order, preserving
+// the directory scaffold so the response still looks like a tree.
 func ListFiles(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
 	prefix := args.GetString("prefix", "")
 	depth := args.GetInt("max_depth", 12)
 	include := args.GetStringSlice("include", nil)
-	return queries.FileTree(ctx, s, prefix, depth, include)
+	tree, err := queries.FileTree(ctx, s, prefix, depth, include)
+	if err != nil {
+		return nil, err
+	}
+	if tree == nil {
+		return &model.FileNode{Name: ".", Path: ".", Type: "dir"}, nil
+	}
+	leaves := countFileLeaves(tree)
+	cap := capFor(leaves, args, format.KindFiles)
+	if !cap.Truncated {
+		return tree, nil
+	}
+	trimmed := trimFileTree(tree, cap.Shown)
+	return listPayload{Items: trimmed, Cap: cap}, nil
+}
+
+// countFileLeaves reports how many file nodes (Type=="file")
+// live under n, including n itself when it is a file.
+func countFileLeaves(n *model.FileNode) int {
+	if n == nil {
+		return 0
+	}
+	if n.Type == "file" {
+		return 1
+	}
+	total := 0
+	for _, c := range n.Children {
+		total += countFileLeaves(c)
+	}
+	return total
+}
+
+// trimFileTree returns a copy of n containing only the first
+// `max` file leaves in pre-order. Directory nodes are kept as a
+// scaffold so the result still parses as a tree. If the source
+// tree has fewer than max leaves the original is returned
+// (callers already check this in capFor, but we double-check
+// here so the function is safe to call independently).
+func trimFileTree(n *model.FileNode, max int) *model.FileNode {
+	if n == nil || max <= 0 {
+		return n
+	}
+	total := countFileLeaves(n)
+	if total <= max {
+		return n
+	}
+	if n.Type == "file" {
+		copy := *n
+		copy.Children = nil
+		return &copy
+	}
+	dir := *n
+	dir.Children = nil
+	kept := 0
+	for _, c := range n.Children {
+		if kept >= max {
+			break
+		}
+		child := trimFileTree(c, max-kept)
+		if child == nil {
+			continue
+		}
+		// When the cap is consumed entirely inside this child,
+		// the recursive call returns a partial subtree; we
+		// keep it so the LLM sees the truncation boundary.
+		dir.Children = append(dir.Children, child)
+		kept += countFileLeaves(child)
+	}
+	return &dir
 }
 
 // ListPackage returns the top-level symbols of a package.
@@ -238,7 +385,8 @@ func ListPackage(ctx context.Context, s *store.Store, args naming.ArgMap) (any, 
 	if len(syms) == 0 {
 		return fmt.Sprintf("no symbols for package %q (check package_id)", resolved), nil
 	}
-	return format.PackageOutline(resolved, syms), nil
+	cap := capFor(len(syms), args, format.KindSymbols)
+	return payloadOrString(syms, cap), nil
 }
 
 // resolvePackageID normalizes the user-supplied package_id. It accepts
@@ -355,25 +503,49 @@ func ListPackageSymbols(ctx context.Context, s *store.Store, args naming.ArgMap)
 // ListImporters returns the packages that import pkgID.
 func ListImporters(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
 	pkgID := args.GetString("package_id", "")
-	return queries.ListImporters(ctx, s, pkgID)
+	pkgs, err := queries.ListImporters(ctx, s, pkgID)
+	if err != nil {
+		return nil, err
+	}
+	cap := capFor(len(pkgs), args, format.KindImporters)
+	return payloadOrString(pkgs, cap), nil
 }
 
 // ListModules returns the indexed modules.
-func ListModules(ctx context.Context, s *store.Store, _ naming.ArgMap) (any, error) {
-	return queries.ListModules(ctx, s)
+func ListModules(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
+	mods, err := queries.ListModules(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	cap := capFor(len(mods), args, format.KindModules)
+	return payloadOrString(mods, cap), nil
 }
 
 // ShowModules returns the per-module package summary.
-func ShowModules(ctx context.Context, s *store.Store, _ naming.ArgMap) (any, error) {
+func ShowModules(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
 	mods, err := queries.ModuleOverview(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	return format.ModuleOverview(mods), nil
+	cap := capFor(len(mods), args, format.KindModules)
+	return payloadOrString(mods, cap), nil
+}
+
+// diffPayload wraps a diff.FileDiff with truncation metadata. The
+// diff has four sub-lists (added/modified/removed/inaccessible);
+// the cap is reported on the union and the visible items are kept
+// in their natural order so the caller can see what the diff
+// actually contains.
+type diffPayload struct {
+	Added        []string    `json:"added"`
+	Modified     []string    `json:"modified"`
+	Removed      []string    `json:"removed"`
+	Inaccessible []string    `json:"inaccessible,omitempty"`
+	Cap          format.Cap  `json:"cap"`
 }
 
 // ShowChanges returns the diff against the last build.
-func ShowChanges(ctx context.Context, s *store.Store, _ naming.ArgMap) (any, error) {
+func ShowChanges(ctx context.Context, s *store.Store, args naming.ArgMap) (any, error) {
 	root, err := queries.LastRoot(ctx, s)
 	if err != nil {
 		return SourceError(err), nil
@@ -382,7 +554,42 @@ func ShowChanges(ctx context.Context, s *store.Store, _ naming.ArgMap) (any, err
 	if err != nil {
 		return nil, err
 	}
-	return d, nil
+	total := len(d.Added) + len(d.Modified) + len(d.Removed) + len(d.Inaccessible)
+	cap := capFor(total, args, format.KindChanges)
+	if !cap.Truncated {
+		return d, nil
+	}
+	// Truncate per-list proportionally: each sub-list is clipped
+	// so the union never exceeds cap.Shown. The cap rounds in
+	// favor of the first lists (added, modified) which are the
+	// more actionable signals for the LLM.
+	shown := cap.Shown
+	added := take(&shown, d.Added)
+	modified := take(&shown, d.Modified)
+	removed := take(&shown, d.Removed)
+	inacc := take(&shown, d.Inaccessible)
+	return diffPayload{
+		Added:        added,
+		Modified:     modified,
+		Removed:      removed,
+		Inaccessible: inacc,
+		Cap:          cap,
+	}, nil
+}
+
+// take removes up to *remaining items from s and returns the
+// taken prefix. *remaining is decremented by the number taken.
+func take(remaining *int, s []string) []string {
+	if *remaining <= 0 || len(s) == 0 {
+		return nil
+	}
+	if len(s) <= *remaining {
+		*remaining -= len(s)
+		return s
+	}
+	out := s[:*remaining]
+	*remaining = 0
+	return out
 }
 
 // FindText runs a server-side regex search.
@@ -407,7 +614,43 @@ func FindText(ctx context.Context, s *store.Store, args naming.ArgMap) (any, err
 	if err != nil {
 		return "error: " + err.Error(), nil
 	}
-	return res, nil
+	// find_text already returns total/truncated. Apply the
+	// visible --head cap on top. The resulting Cap reports the
+	// post-truncation counts and folds both truncation sources
+	// into a single hint.
+	total := res.Total
+	matches := res.Matches
+	hint := format.HintFor(format.KindMatches)
+	if res.Truncated {
+		hint = hint + " (or raise --max-results)"
+	}
+	head := args.GetInt("head", defaultHead)
+	if head < 0 {
+		head = 0
+	}
+	cap := format.Cap{Total: total, Shown: len(matches), Truncated: res.Truncated, Hint: hint}
+	if head > 0 && len(matches) > head {
+		matches = matches[:head]
+		cap = format.Cap{Total: total, Shown: head, Truncated: true, Hint: hint}
+	}
+	out := struct {
+		Pattern   string       `json:"pattern"`
+		Root      string       `json:"root"`
+		Total     int          `json:"total"`
+		Truncated bool         `json:"truncated"`
+		Shown     int          `json:"shown"`
+		Cap       format.Cap   `json:"cap"`
+		Matches   []grep.Match `json:"matches"`
+	}{
+		Pattern:   res.Pattern,
+		Root:      res.Root,
+		Total:     total,
+		Truncated: cap.Truncated,
+		Shown:     cap.Shown,
+		Cap:       cap,
+		Matches:   matches,
+	}
+	return out, nil
 }
 
 // IndexStatus returns the high-level DB snapshot.

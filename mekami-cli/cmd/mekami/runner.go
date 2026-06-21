@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/Wolf258/mekami-cli/internal/core/store"
 	"github.com/Wolf258/mekami-cli/internal/handlers"
@@ -113,19 +114,40 @@ func buildRunners() map[string]naming.CobraRunner {
 	return runners
 }
 
-// lookupSpecByCmd finds the Spec whose Use matches cmd.Name()
-// and Parent. Used by runners that need the spec for flag
-// decoding (currently only the mcp install path, which maps
-// kebab flags back to snake_case). Returns nil if not found;
-// callers handle nil gracefully.
+// lookupSpecByCmd finds the Spec whose Use starts with cmd.Name()
+// and whose Parent matches the parent cmd. The Use field carries
+// placeholder tokens like "<query>" that we strip before comparing
+// against cmd.Name() (cobra drops the placeholders from cmd.Name
+// when it builds the command tree, so a literal == match fails
+// for every spec with positional args).
+//
+// Parent matching is a small concession to the cobra tree shape:
+// cobra attaches every top-level subcommand to the binary root,
+// whose Name() is the binary name ("mekami"). Specs at the top
+// level declare Parent=="", so a literal Name() comparison never
+// matches. We translate "the cmd lives under the binary root" to
+// Parent=="" by checking the parent against the Parents map: only
+// registered carrier parents (mcp, core, service) carry a Parent
+// field in the spec; anything else is the binary root.
 func lookupSpecByCmd(cmd *cobra.Command) *naming.Spec {
-	parent := ""
+	parentKey := ""
 	if cmd.Parent() != nil {
-		parent = cmd.Parent().Name()
+		pname := cmd.Parent().Name()
+		if _, isCarrier := naming.Parents[pname]; isCarrier {
+			parentKey = pname
+		}
 	}
+	wanted := cmd.Name()
 	for i := range naming.Specs {
 		s := &naming.Specs[i]
-		if s.Parent == parent && s.Use == cmd.Name() {
+		if s.Parent != parentKey {
+			continue
+		}
+		head := s.Use
+		if i := strings.IndexByte(head, ' '); i >= 0 {
+			head = head[:i]
+		}
+		if head == wanted {
 			return s
 		}
 	}

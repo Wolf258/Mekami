@@ -94,6 +94,7 @@ use find-text for that.`,
 			{Name: "kind", Type: "string", Default: "", Description: "filter by symbol kind (func|type|method|var|const)"},
 			{Name: "path_prefix", Type: "string", Default: "", Description: "filter by file path prefix"},
 			{Name: "limit", Type: "int", Default: "0", Description: "max results (default 50)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -163,6 +164,7 @@ pass --ref-kind to filter (call|type-use|value|field|embed|import).`,
 			{Name: "ref_kind", Type: "string", Default: "", Description: "filter on the kind of reference edge"},
 			{Name: "path_prefix", Type: "string", Default: "", Description: "filter by file path prefix"},
 			{Name: "limit", Type: "int", Default: "0", Description: "max results (default 100)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -179,6 +181,7 @@ edges.`,
 		Flags: []Flag{
 			{Name: "path_prefix", Type: "string", Default: "", Description: "filter by file path prefix"},
 			{Name: "limit", Type: "int", Default: "0", Description: "max results (default 50)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -190,6 +193,9 @@ edges.`,
 method), ordered by line. Path accepts exact or suffix match.`,
 		Args: []Arg{
 			{Name: "path", Description: "relative file path inside the indexed project"},
+		},
+		Flags: []Flag{
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -227,6 +233,7 @@ CLI; pass 0 for unlimited.`,
 		Flags: []Flag{
 			{Name: "max_depth", Type: "int", Default: "12", Description: "max directory depth to expand (0 = unlimited)"},
 			{Name: "include", Type: "stringSlice", Default: "", Description: "file extensions to include (e.g. go,md)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -251,6 +258,7 @@ shell calls that often miss non-exported symbols or misalign line numbers.`,
 		},
 		Flags: []Flag{
 			{Name: "kinds", Type: "stringSlice", Default: "", Description: "filter by symbol kinds (func,type,var,const,method)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -266,6 +274,7 @@ list with file:line.`,
 		},
 		Flags: []Flag{
 			{Name: "kinds", Type: "stringSlice", Default: "", Description: "filter by symbol kinds (func,type,var,const,method)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -276,7 +285,10 @@ list with file:line.`,
 		Long: `List packages in this project that import the given
 package_id. Returns JSON list of packages.`,
 		Args: []Arg{
-			{Name: "package_id", Description: "package identifier"},
+			{Name: "package_id", Description: "package identifier (Go: import path)"},
+		},
+		Flags: []Flag{
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
@@ -288,6 +300,9 @@ package_id. Returns JSON list of packages.`,
 returns every use'd module; in a single-module repo returns that
 one module. Call this before show-modules to discover what the
 graph covers.`,
+		Flags: []Flag{
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
+		},
 	},
 	{
 		Name:          "show_modules",
@@ -297,6 +312,9 @@ graph covers.`,
 		Long: `High-level summary of the indexed modules: each package with
 file/symbol/export counts. First call when exploring a new
 project.`,
+		Flags: []Flag{
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
+		},
 	},
 	{
 		Name:          "show_changes",
@@ -307,6 +325,9 @@ project.`,
 since the last 'mekami build'. Reads the filesystem and compares
 to the indexed snapshot. Use this to detect when the index is
 stale.`,
+		Flags: []Flag{
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
+		},
 	},
 	{
 		Name:          "find_text",
@@ -326,6 +347,7 @@ this is always fresh.`,
 			{Name: "include_ext", Type: "stringSlice", Default: "", Description: "restrict to these file extensions"},
 			{Name: "max_results", Type: "int", Default: "200", Description: "cap on number of matches returned"},
 			{Name: "context", Type: "int", Default: "2", Description: "context lines before each match (0-5)"},
+			{Name: "head", Type: "int", Default: "30", Description: "max items in output (0 = unlimited; default 30). Truncated responses report the total count and a hint."},
 		},
 	},
 	{
