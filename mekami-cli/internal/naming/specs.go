@@ -96,7 +96,7 @@ use ` + "`sed -n A,Bp`" + ` from a shell.`,
 		},
 		Flags: []Flag{
 			{Name: "json", Type: "bool", Default: "false", Description: "emit JSON to stdout", CLIOnly: true},
-			{Name: "body", Type: "bool", Default: "false", Description: "print only the numbered body", CLIOnly: true},
+			{Name: "body", Type: "bool", Default: "false", Description: "print only the numbered body"},
 			{Name: "header", Type: "bool", Default: "false", Description: "print only the file:line header", CLIOnly: true},
 			{Name: "max_lines", Type: "int", Default: "200", Description: "max lines to read"},
 		},

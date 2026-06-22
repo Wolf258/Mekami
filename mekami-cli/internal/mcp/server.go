@@ -80,35 +80,44 @@ func (s *Server) registerTools() {
 		if spec.Name == "" {
 			continue
 		}
-		// Build the input schema from Args + Flags (snake_case).
-		props := map[string]any{}
-		var required []string
-		for _, a := range spec.Args {
-			props[a.Name] = map[string]any{
-				"type":        "string",
-				"description": a.Description,
-			}
-			required = append(required, a.Name)
-		}
-		for _, f := range spec.Flags {
-			if f.CLIOnly {
-				continue
-			}
-			props[f.Name] = mcpFlagSchema(f)
-		}
-		schema := map[string]any{
-			"type":       "object",
-			"properties": props,
-		}
-		if len(required) > 0 {
-			schema["required"] = required
-		}
 		s.server.AddTool(&mcp.Tool{
 			Name:        spec.Name,
 			Description: toolDescription(spec),
-			InputSchema: schema,
+			InputSchema: buildInputSchema(spec),
 		}, s.makeHandler(spec.Name))
 	}
+}
+
+// buildInputSchema assembles the JSON-schema the MCP tool advertises
+// for a given Spec. It walks Args (required) and Flags (optional),
+// skipping flags marked CLIOnly so the schema only lists properties
+// the LLM is supposed to set. Extracted from registerTools so a unit
+// test can assert which flags are exposed without spinning up the
+// full server.
+func buildInputSchema(spec naming.Spec) map[string]any {
+	props := map[string]any{}
+	var required []string
+	for _, a := range spec.Args {
+		props[a.Name] = map[string]any{
+			"type":        "string",
+			"description": a.Description,
+		}
+		required = append(required, a.Name)
+	}
+	for _, f := range spec.Flags {
+		if f.CLIOnly {
+			continue
+		}
+		props[f.Name] = mcpFlagSchema(f)
+	}
+	schema := map[string]any{
+		"type":       "object",
+		"properties": props,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
 }
 
 // toolDescription assembles the description the LLM sees. We keep
