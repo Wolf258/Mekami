@@ -50,7 +50,7 @@ fi
 # Regenerate all_gen.go with the dev builtin set. The original
 # file is backed up in a mktemp directory and restored by the
 # EXIT trap below, so the working tree is left untouched whether
-# the build succeeds or fails.
+# the build succeeds or fails. yes
 all_gen="mekami-cli/internal/core/frontend/all_gen/all_gen.go"
 backup_dir=$(mktemp -d)
 cp "$all_gen" "$backup_dir/orig"
